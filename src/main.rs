@@ -390,7 +390,8 @@ async fn main() {
     agent = agent
         .with_model(&model)
         .with_api_key(api_key)
-        .with_tools(default_tools());
+        .with_tools(default_tools())
+        .on_error(|e| eprintln!("error: {}", e));
 
     if !system.is_empty() {
         agent = agent.with_system_prompt(system);
