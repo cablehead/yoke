@@ -4,53 +4,64 @@ Headless agent harness. JSONL in, JSONL out.
 
 Built on [yoagent](https://github.com/yologdev/yoagent).
 
-## Usage
+## Quick start
 
 ```
 yoke --provider anthropic --model claude-sonnet-4-20250514 "what files are here?"
 ```
 
-Pipe in context, add a prompt on the CLI:
+## Discovery
+
+Run with no args to list providers:
 
 ```
-cat context.jsonl | yoke --provider anthropic --model claude-sonnet-4-20250514 "what do you think?"
+$ yoke
+available providers:
+
+  anthropic
+    env: ANTHROPIC_API_KEY
+    key: https://console.anthropic.com/settings/keys
+
+  openai
+    env: OPENAI_API_KEY
+    key: https://platform.openai.com/api-keys
+
+  gemini
+    env: GEMINI_API_KEY
+    key: https://aistudio.google.com/apikey
 ```
 
-List available models for a provider:
+Run with just `--provider` to list available models:
 
 ```
-yoke --provider anthropic
-yoke --provider openai
+$ yoke --provider anthropic
+claude-3-5-haiku-20241022
+claude-3-5-sonnet-20241022
+claude-sonnet-4-20250514
+...
 ```
 
 ## Providers
 
-| Provider | Env var |
-|----------|---------|
-| anthropic | `ANTHROPIC_API_KEY` |
-| openai | `OPENAI_API_KEY` |
-| gemini | `GEMINI_API_KEY` |
+| Provider | Env var | Models endpoint |
+|----------|---------|-----------------|
+| anthropic | `ANTHROPIC_API_KEY` | Anthropic Messages API |
+| openai | `OPENAI_API_KEY` | OpenAI Chat Completions |
+| gemini | `GEMINI_API_KEY` | Google Generative AI |
 
 ## Input
 
-JSONL on stdin. Each line is either a context message (has `role`) or ignored.
+JSONL on stdin. Lines with `role` are context messages. Everything else is
+silently skipped (observation events, blank lines, etc).
+
+Simple form:
 
 ```jsonl
 {"role":"system","content":"You are a helpful assistant."}
 {"role":"user","content":"list files in the current directory"}
 ```
 
-Simple string content works for user and system messages. Structured content
-from a previous run's output also works -- pipe it back in to continue a
-conversation.
-
-## Output
-
-JSONL on stdout. Two kinds of lines:
-
-**Context** -- messages with a `role` field. These are the conversation: user
-messages, assistant responses, tool results. Pipe them back in as input to
-continue.
+Structured form (round-tripped from a previous run's output):
 
 ```jsonl
 {"role":"user","content":[{"type":"text","text":"list files"}],"timestamp":1234}
@@ -58,15 +69,44 @@ continue.
 {"role":"toolResult","toolCallId":"...","toolName":"...","content":[...],"isError":false,"timestamp":1234}
 ```
 
-**Observation** -- events with a `type` field. Streaming deltas, tool
-execution, lifecycle. Skipped on input.
+Both forms work. String content is shorthand for user and system messages.
+
+## Output
+
+JSONL on stdout. Two kinds of lines, distinguished by shape:
+
+**Context lines** have `role`. These are the conversation: user messages,
+assistant responses, tool results. They round-trip as input.
+
+**Observation lines** have `type`. Streaming deltas, tool execution events,
+lifecycle markers. Skipped on input.
 
 ```jsonl
 {"type":"agent_start"}
+{"type":"turn_start"}
+{"role":"user","content":[{"type":"text","text":"what files are here?"}],"timestamp":1234}
 {"type":"delta","kind":"text","delta":"I'll check"}
 {"type":"tool_execution_start","tool_call_id":"...","tool_name":"list_files","args":{}}
 {"type":"tool_execution_end","tool_call_id":"...","tool_name":"list_files","result":{...},"is_error":false}
+{"role":"toolResult","toolCallId":"...","toolName":"list_files","content":[...],"isError":false,"timestamp":1234}
+{"role":"assistant","content":[...],"stopReason":"stop","model":"...","usage":{...},"timestamp":1234}
+{"type":"turn_end"}
 {"type":"agent_end"}
+```
+
+## Round-tripping
+
+Save a run, then continue the conversation:
+
+```
+yoke --provider anthropic --model claude-sonnet-4-20250514 "what files are here?" > session.jsonl
+cat session.jsonl | yoke --provider anthropic --model claude-sonnet-4-20250514 "now count them"
+```
+
+Or pipe the same context to a different model:
+
+```
+cat session.jsonl | yoke --provider openai --model gpt-4o "summarize what happened"
 ```
 
 ## Tools
