@@ -5,7 +5,7 @@ use serde::Serialize;
 use tokio::sync::mpsc;
 
 use yoagent::provider::{AnthropicProvider, GoogleProvider, ModelConfig, OpenAiCompatProvider};
-use yoagent::tools::default_tools;
+use yoagent::tools::{default_tools, WebSearchTool};
 use yoagent::types::*;
 use yoagent::Agent;
 
@@ -390,7 +390,11 @@ async fn main() {
     agent = agent
         .with_model(&model)
         .with_api_key(api_key)
-        .with_tools(default_tools())
+        .with_tools({
+            let mut tools = default_tools();
+            tools.push(Box::new(WebSearchTool));
+            tools
+        })
         .on_error(|e| eprintln!("error: {}", e));
 
     if !system.is_empty() {
