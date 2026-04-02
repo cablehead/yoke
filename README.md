@@ -29,6 +29,7 @@ yoke --provider openai
 |----------|---------|
 | anthropic | `ANTHROPIC_API_KEY` |
 | openai | `OPENAI_API_KEY` |
+| gemini | `GEMINI_API_KEY` |
 
 ## Input
 

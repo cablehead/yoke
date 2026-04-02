@@ -4,7 +4,7 @@ use clap::Parser;
 use serde::Serialize;
 use tokio::sync::mpsc;
 
-use yoagent::provider::{AnthropicProvider, ModelConfig, OpenAiCompatProvider};
+use yoagent::provider::{AnthropicProvider, GoogleProvider, ModelConfig, OpenAiCompatProvider};
 use yoagent::tools::default_tools;
 use yoagent::types::*;
 use yoagent::Agent;
@@ -224,6 +224,10 @@ fn provider_config(provider: &str) -> ProviderConfig {
             key_var: "OPENAI_API_KEY",
             models_url: "https://api.openai.com/v1/models",
         },
+        "gemini" => ProviderConfig {
+            key_var: "GEMINI_API_KEY",
+            models_url: "https://generativelanguage.googleapis.com/v1beta/models",
+        },
         other => {
             eprintln!("unknown provider: {}", other);
             std::process::exit(1);
@@ -241,14 +245,28 @@ fn get_api_key(config: &ProviderConfig) -> String {
 async fn list_models(provider: &str, config: &ProviderConfig, api_key: &str) {
     let client = reqwest::Client::new();
 
-    let mut req = client.get(config.models_url);
-    if provider == "anthropic" {
-        req = req
-            .header("x-api-key", api_key)
-            .header("anthropic-version", "2023-06-01");
-    } else {
-        req = req.header("authorization", format!("Bearer {}", api_key));
-    }
+    let (req, list_key, id_key) = match provider {
+        "anthropic" => (
+            client
+                .get(config.models_url)
+                .header("x-api-key", api_key)
+                .header("anthropic-version", "2023-06-01"),
+            "data",
+            "id",
+        ),
+        "gemini" => (
+            client.get(format!("{}?key={}", config.models_url, api_key)),
+            "models",
+            "name",
+        ),
+        _ => (
+            client
+                .get(config.models_url)
+                .header("authorization", format!("Bearer {}", api_key)),
+            "data",
+            "id",
+        ),
+    };
 
     let resp = match req.send().await {
         Ok(r) => r,
@@ -266,10 +284,16 @@ async fn list_models(provider: &str, config: &ProviderConfig, api_key: &str) {
         }
     };
 
-    let models = body["data"].as_array();
-    match models {
+    match body[list_key].as_array() {
         Some(list) => {
-            let mut ids: Vec<&str> = list.iter().filter_map(|m| m["id"].as_str()).collect();
+            let mut ids: Vec<String> = list
+                .iter()
+                .filter_map(|m| {
+                    let raw = m[id_key].as_str()?;
+                    // Google prefixes with "models/" -- strip it
+                    Some(raw.strip_prefix("models/").unwrap_or(raw).to_string())
+                })
+                .collect();
             ids.sort();
             for id in ids {
                 println!("{}", id);
@@ -318,6 +342,9 @@ async fn main() {
         "anthropic" => Agent::new(AnthropicProvider),
         "openai" => {
             Agent::new(OpenAiCompatProvider).with_model_config(ModelConfig::openai(&model, &model))
+        }
+        "gemini" => {
+            Agent::new(GoogleProvider).with_model_config(ModelConfig::google(&model, &model))
         }
         _ => unreachable!(),
     };
