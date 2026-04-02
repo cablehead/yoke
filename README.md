@@ -6,7 +6,7 @@ Built on [yoagent](https://github.com/yologdev/yoagent).
 
 ## Quick start
 
-```
+```nushell
 yoke --provider anthropic --model claude-sonnet-4-20250514 "what files are here?"
 ```
 
@@ -14,38 +14,38 @@ yoke --provider anthropic --model claude-sonnet-4-20250514 "what files are here?
 
 Run with no args to list providers:
 
-```
-$ yoke
-available providers:
-
-  anthropic
-    env: ANTHROPIC_API_KEY
-    key: https://console.anthropic.com/settings/keys
-
-  openai
-    env: OPENAI_API_KEY
-    key: https://platform.openai.com/api-keys
-
-  gemini
-    env: GEMINI_API_KEY
-    key: https://aistudio.google.com/apikey
+```nushell
+yoke
+# available providers:
+#
+#   anthropic
+#     env: ANTHROPIC_API_KEY
+#     key: https://console.anthropic.com/settings/keys
+#
+#   openai
+#     env: OPENAI_API_KEY
+#     key: https://platform.openai.com/api-keys
+#
+#   gemini
+#     env: GEMINI_API_KEY
+#     key: https://aistudio.google.com/apikey
 ```
 
 Run with just `--provider` to list available models:
 
-```
-$ yoke --provider anthropic
-claude-3-5-haiku-20241022
-claude-3-5-sonnet-20241022
-claude-sonnet-4-20250514
-...
+```nushell
+yoke --provider anthropic
+# claude-3-5-haiku-20241022
+# claude-3-5-sonnet-20241022
+# claude-sonnet-4-20250514
+# ...
 ```
 
 ## Providers
 
-| Provider | Env var | Models endpoint |
-|----------|---------|-----------------|
-| anthropic | `ANTHROPIC_API_KEY` | Anthropic Messages API |
+| Provider | Env var | API |
+|----------|---------|-----|
+| anthropic | `ANTHROPIC_API_KEY` | Anthropic Messages |
 | openai | `OPENAI_API_KEY` | OpenAI Chat Completions |
 | gemini | `GEMINI_API_KEY` | Google Generative AI |
 
@@ -54,22 +54,22 @@ claude-sonnet-4-20250514
 JSONL on stdin. Lines with `role` are context messages. Everything else is
 silently skipped (observation events, blank lines, etc).
 
-Simple form:
+Simple form -- string content for user and system messages:
 
-```jsonl
-{"role":"system","content":"You are a helpful assistant."}
-{"role":"user","content":"list files in the current directory"}
+```nushell
+{"role":"user","content":"list files"} | to json -r | yoke --provider anthropic --model claude-sonnet-4-20250514
 ```
 
-Structured form (round-tripped from a previous run's output):
+Multiple messages:
 
-```jsonl
-{"role":"user","content":[{"type":"text","text":"list files"}],"timestamp":1234}
-{"role":"assistant","content":[...],"stopReason":"stop","model":"...","usage":{...},"timestamp":1234}
-{"role":"toolResult","toolCallId":"...","toolName":"...","content":[...],"isError":false,"timestamp":1234}
+```nushell
+[
+  ({"role":"system","content":"You are a helpful assistant."} | to json -r)
+  ({"role":"user","content":"list files in the current directory"} | to json -r)
+] | str join "\n" | yoke --provider anthropic --model claude-sonnet-4-20250514
 ```
 
-Both forms work. String content is shorthand for user and system messages.
+Structured form (round-tripped from a previous run's output) also works.
 
 ## Output
 
@@ -98,15 +98,20 @@ lifecycle markers. Skipped on input.
 
 Save a run, then continue the conversation:
 
-```
-yoke --provider anthropic --model claude-sonnet-4-20250514 "what files are here?" > session.jsonl
-cat session.jsonl | yoke --provider anthropic --model claude-sonnet-4-20250514 "now count them"
+```nushell
+yoke --provider anthropic --model claude-sonnet-4-20250514 "what files are here?" | tee { save -f session.jsonl }
 ```
 
-Or pipe the same context to a different model:
+Continue from saved context:
 
+```nushell
+open --raw session.jsonl | yoke --provider anthropic --model claude-sonnet-4-20250514 "now count them"
 ```
-cat session.jsonl | yoke --provider openai --model gpt-4o "summarize what happened"
+
+Pipe the same context to a different model:
+
+```nushell
+open --raw session.jsonl | yoke --provider openai --model gpt-4o "summarize what happened"
 ```
 
 ## Tools
@@ -116,6 +121,6 @@ list_files, search.
 
 ## Build
 
-```
+```nushell
 cargo build --release
 ```
