@@ -12,9 +12,9 @@ use yoagent::Agent;
 #[derive(Parser)]
 #[command(about = "Headless agent harness. JSONL in, JSONL out.")]
 struct Cli {
-    /// Provider: anthropic, openai
+    /// Provider: anthropic, openai, gemini
     #[arg(long)]
-    provider: String,
+    provider: Option<String>,
 
     /// Model identifier (e.g. claude-sonnet-4-20250514)
     #[arg(long)]
@@ -212,26 +212,54 @@ fn handle_event(event: &AgentEvent) {
 struct ProviderConfig {
     key_var: &'static str,
     models_url: &'static str,
+    dashboard: &'static str,
 }
 
-fn provider_config(provider: &str) -> ProviderConfig {
-    match provider {
-        "anthropic" => ProviderConfig {
+const PROVIDERS: &[(&str, ProviderConfig)] = &[
+    (
+        "anthropic",
+        ProviderConfig {
             key_var: "ANTHROPIC_API_KEY",
             models_url: "https://api.anthropic.com/v1/models",
+            dashboard: "https://console.anthropic.com/settings/keys",
         },
-        "openai" => ProviderConfig {
+    ),
+    (
+        "openai",
+        ProviderConfig {
             key_var: "OPENAI_API_KEY",
             models_url: "https://api.openai.com/v1/models",
+            dashboard: "https://platform.openai.com/api-keys",
         },
-        "gemini" => ProviderConfig {
+    ),
+    (
+        "gemini",
+        ProviderConfig {
             key_var: "GEMINI_API_KEY",
             models_url: "https://generativelanguage.googleapis.com/v1beta/models",
+            dashboard: "https://aistudio.google.com/apikey",
         },
-        other => {
-            eprintln!("unknown provider: {}", other);
+    ),
+];
+
+fn provider_config(provider: &str) -> &'static ProviderConfig {
+    PROVIDERS
+        .iter()
+        .find(|(name, _)| *name == provider)
+        .map(|(_, config)| config)
+        .unwrap_or_else(|| {
+            eprintln!("unknown provider: {}", provider);
             std::process::exit(1);
-        }
+        })
+}
+
+fn list_providers() {
+    println!("available providers:\n");
+    for (name, config) in PROVIDERS {
+        println!("  {}", name);
+        println!("    env: {}", config.key_var);
+        println!("    key: {}", config.dashboard);
+        println!();
     }
 }
 
@@ -311,14 +339,24 @@ async fn list_models(provider: &str, config: &ProviderConfig, api_key: &str) {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
-    let prov = provider_config(&cli.provider);
-    let api_key = get_api_key(&prov);
+
+    // No provider: list available providers and exit
+    let provider = match cli.provider {
+        Some(p) => p,
+        None => {
+            list_providers();
+            return;
+        }
+    };
+
+    let prov = provider_config(&provider);
+    let api_key = get_api_key(prov);
 
     // No model: list available models and exit
     let model = match cli.model {
         Some(m) => m,
         None => {
-            list_models(&cli.provider, &prov, &api_key).await;
+            list_models(&provider, prov, &api_key).await;
             return;
         }
     };
@@ -338,7 +376,7 @@ async fn main() {
         std::process::exit(1);
     }
 
-    let mut agent = match cli.provider.as_str() {
+    let mut agent = match provider.as_str() {
         "anthropic" => Agent::new(AnthropicProvider),
         "openai" => {
             Agent::new(OpenAiCompatProvider).with_model_config(ModelConfig::openai(&model, &model))
