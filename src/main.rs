@@ -16,8 +16,8 @@ struct Cli {
     #[arg(long)]
     model: String,
 
-    /// Provider: anthropic (default), openai
-    #[arg(long, default_value = "anthropic")]
+    /// Provider: anthropic, openai
+    #[arg(long)]
     provider: String,
 
     /// Optional trailing prompt appended as a final user message
