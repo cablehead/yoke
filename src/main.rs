@@ -21,26 +21,20 @@ struct Cli {
     prompt: Option<String>,
 }
 
-// -- JSONL output types ------------------------------------------------------
+// -- JSONL output: observation events ----------------------------------------
 
 #[derive(Serialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
-enum Event {
+enum Observation {
     AgentStart,
     AgentEnd,
     TurnStart,
     TurnEnd,
-    MessageStart {
-        message: AgentMessage,
-    },
     #[serde(rename = "delta")]
-    MessageUpdate {
+    Delta {
         #[serde(flatten)]
-        delta: Delta,
-    },
-    MessageEnd {
-        message: AgentMessage,
+        delta: DeltaKind,
     },
     ToolExecutionStart {
         tool_call_id: String,
@@ -66,20 +60,13 @@ enum Event {
 #[derive(Serialize)]
 #[serde(tag = "kind")]
 #[serde(rename_all = "snake_case")]
-enum Delta {
+enum DeltaKind {
     Text { delta: String },
     Thinking { delta: String },
     ToolCall { delta: String },
 }
 
 // -- Input parsing -----------------------------------------------------------
-
-#[derive(serde::Deserialize)]
-struct InputMessage {
-    role: String,
-    #[serde(default)]
-    content: serde_json::Value,
-}
 
 fn parse_stdin() -> (String, Vec<AgentMessage>) {
     let mut system = String::new();
@@ -99,81 +86,100 @@ fn parse_stdin() -> (String, Vec<AgentMessage>) {
             continue;
         }
 
-        let msg: InputMessage = match serde_json::from_str(line) {
-            Ok(m) => m,
+        // Parse as generic JSON to inspect the shape
+        let value: serde_json::Value = match serde_json::from_str(line) {
+            Ok(v) => v,
             Err(e) => {
                 eprintln!("skipping invalid json: {}", e);
                 continue;
             }
         };
 
-        match msg.role.as_str() {
+        // Lines with "role" are context messages; everything else is skipped
+        let role = match value.get("role").and_then(|r| r.as_str()) {
+            Some(r) => r,
+            None => continue,
+        };
+
+        match role {
             "system" => {
-                system = match msg.content {
-                    serde_json::Value::String(s) => s,
-                    other => other.to_string(),
+                system = match value.get("content") {
+                    Some(serde_json::Value::String(s)) => s.clone(),
+                    Some(other) => other.to_string(),
+                    None => String::new(),
                 };
             }
-            "user" => {
-                let text = match msg.content {
-                    serde_json::Value::String(s) => s,
-                    other => other.to_string(),
-                };
+            // Shorthand: {"role":"user","content":"some string"}
+            "user" if value.get("content").is_some_and(|c| c.is_string()) => {
+                let text = value["content"].as_str().unwrap();
                 messages.push(AgentMessage::Llm(Message::user(text)));
             }
-            other => {
-                eprintln!("skipping unsupported role: {}", other);
-            }
+            // Full form: user, assistant, toolResult with structured content
+            _ => match serde_json::from_value::<Message>(value.clone()) {
+                Ok(msg) => messages.push(AgentMessage::Llm(msg)),
+                Err(e) => eprintln!("skipping message: {}", e),
+            },
         }
     }
 
     (system, messages)
 }
 
-// -- Event translation -------------------------------------------------------
+// -- Event emission ----------------------------------------------------------
 
-fn translate(event: &AgentEvent) -> Option<Event> {
+fn emit_context(message: &AgentMessage) {
+    match serde_json::to_string(message) {
+        Ok(json) => println!("{}", json),
+        Err(e) => eprintln!("error serializing message: {}", e),
+    }
+}
+
+fn emit_observation(obs: &Observation) {
+    match serde_json::to_string(obs) {
+        Ok(json) => println!("{}", json),
+        Err(e) => eprintln!("error serializing event: {}", e),
+    }
+}
+
+fn handle_event(event: &AgentEvent) {
     match event {
-        AgentEvent::AgentStart => Some(Event::AgentStart),
-        AgentEvent::AgentEnd { .. } => Some(Event::AgentEnd),
-        AgentEvent::TurnStart => Some(Event::TurnStart),
-        AgentEvent::TurnEnd { .. } => Some(Event::TurnEnd),
-        AgentEvent::MessageStart { message } => Some(Event::MessageStart {
-            message: message.clone(),
-        }),
+        // Context lines: bare messages with "role"
+        AgentEvent::MessageEnd { message } => emit_context(message),
+
+        // Observation lines: tagged with "type"
+        AgentEvent::AgentStart => emit_observation(&Observation::AgentStart),
+        AgentEvent::AgentEnd { .. } => emit_observation(&Observation::AgentEnd),
+        AgentEvent::TurnStart => emit_observation(&Observation::TurnStart),
+        AgentEvent::TurnEnd { .. } => emit_observation(&Observation::TurnEnd),
         AgentEvent::MessageUpdate { delta, .. } => {
             let d = match delta {
-                StreamDelta::Text { delta } => Delta::Text {
+                StreamDelta::Text { delta } => DeltaKind::Text {
                     delta: delta.clone(),
                 },
-                StreamDelta::Thinking { delta } => Delta::Thinking {
+                StreamDelta::Thinking { delta } => DeltaKind::Thinking {
                     delta: delta.clone(),
                 },
-                StreamDelta::ToolCallDelta { delta } => Delta::ToolCall {
+                StreamDelta::ToolCallDelta { delta } => DeltaKind::ToolCall {
                     delta: delta.clone(),
                 },
             };
-            Some(Event::MessageUpdate { delta: d })
+            emit_observation(&Observation::Delta { delta: d });
         }
-        AgentEvent::MessageEnd { message } => Some(Event::MessageEnd {
-            message: message.clone(),
-        }),
         AgentEvent::ToolExecutionStart {
             tool_call_id,
             tool_name,
             args,
-        } => Some(Event::ToolExecutionStart {
+        } => emit_observation(&Observation::ToolExecutionStart {
             tool_call_id: tool_call_id.clone(),
             tool_name: tool_name.clone(),
             args: args.clone(),
         }),
-        AgentEvent::ToolExecutionUpdate { .. } => None,
         AgentEvent::ToolExecutionEnd {
             tool_call_id,
             tool_name,
             result,
             is_error,
-        } => Some(Event::ToolExecutionEnd {
+        } => emit_observation(&Observation::ToolExecutionEnd {
             tool_call_id: tool_call_id.clone(),
             tool_name: tool_name.clone(),
             result: result.clone(),
@@ -183,21 +189,17 @@ fn translate(event: &AgentEvent) -> Option<Event> {
             tool_call_id,
             tool_name,
             text,
-        } => Some(Event::ProgressMessage {
+        } => emit_observation(&Observation::ProgressMessage {
             tool_call_id: tool_call_id.clone(),
             tool_name: tool_name.clone(),
             text: text.clone(),
         }),
-        AgentEvent::InputRejected { reason } => Some(Event::InputRejected {
+        AgentEvent::InputRejected { reason } => emit_observation(&Observation::InputRejected {
             reason: reason.clone(),
         }),
-    }
-}
 
-fn emit(event: &Event) {
-    match serde_json::to_string(event) {
-        Ok(json) => println!("{}", json),
-        Err(e) => eprintln!("error serializing event: {}", e),
+        // MessageStart and ToolExecutionUpdate are not emitted
+        AgentEvent::MessageStart { .. } | AgentEvent::ToolExecutionUpdate { .. } => {}
     }
 }
 
@@ -237,9 +239,7 @@ async fn main() {
 
     let printer = tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
-            if let Some(e) = translate(&event) {
-                emit(&e);
-            }
+            handle_event(&event);
         }
     });
 
