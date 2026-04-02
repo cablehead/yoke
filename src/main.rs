@@ -228,19 +228,23 @@ async fn main() {
         std::process::exit(1);
     }
 
-    let mut agent = match cli.provider.as_str() {
-        "anthropic" => Agent::new(AnthropicProvider),
-        "openai" => Agent::new(OpenAiCompatProvider)
-            .with_model_config(ModelConfig::openai(&cli.model, &cli.model)),
+    let (mut agent, key_var) = match cli.provider.as_str() {
+        "anthropic" => (Agent::new(AnthropicProvider), "ANTHROPIC_API_KEY"),
+        "openai" => (
+            Agent::new(OpenAiCompatProvider)
+                .with_model_config(ModelConfig::openai(&cli.model, &cli.model)),
+            "OPENAI_API_KEY",
+        ),
         other => {
             eprintln!("unknown provider: {}", other);
             std::process::exit(1);
         }
     };
 
-    let api_key = std::env::var("ANTHROPIC_API_KEY")
-        .or_else(|_| std::env::var("API_KEY"))
-        .unwrap_or_default();
+    let api_key = std::env::var(key_var).unwrap_or_else(|_| {
+        eprintln!("{} not set", key_var);
+        std::process::exit(1);
+    });
 
     agent = agent
         .with_model(&cli.model)
