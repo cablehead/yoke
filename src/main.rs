@@ -12,13 +12,13 @@ use yoagent::Agent;
 #[derive(Parser)]
 #[command(about = "Headless agent harness. JSONL in, JSONL out.")]
 struct Cli {
-    /// Model identifier (e.g. claude-sonnet-4-20250514)
-    #[arg(long)]
-    model: String,
-
     /// Provider: anthropic, openai
     #[arg(long)]
     provider: String,
+
+    /// Model identifier (e.g. claude-sonnet-4-20250514)
+    #[arg(long)]
+    model: Option<String>,
 
     /// Optional trailing prompt appended as a final user message
     #[arg()]
@@ -207,11 +207,97 @@ fn handle_event(event: &AgentEvent) {
     }
 }
 
+// -- Provider config ---------------------------------------------------------
+
+struct ProviderConfig {
+    key_var: &'static str,
+    models_url: &'static str,
+}
+
+fn provider_config(provider: &str) -> ProviderConfig {
+    match provider {
+        "anthropic" => ProviderConfig {
+            key_var: "ANTHROPIC_API_KEY",
+            models_url: "https://api.anthropic.com/v1/models",
+        },
+        "openai" => ProviderConfig {
+            key_var: "OPENAI_API_KEY",
+            models_url: "https://api.openai.com/v1/models",
+        },
+        other => {
+            eprintln!("unknown provider: {}", other);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn get_api_key(config: &ProviderConfig) -> String {
+    std::env::var(config.key_var).unwrap_or_else(|_| {
+        eprintln!("{} not set", config.key_var);
+        std::process::exit(1);
+    })
+}
+
+async fn list_models(provider: &str, config: &ProviderConfig, api_key: &str) {
+    let client = reqwest::Client::new();
+
+    let mut req = client.get(config.models_url);
+    if provider == "anthropic" {
+        req = req
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01");
+    } else {
+        req = req.header("authorization", format!("Bearer {}", api_key));
+    }
+
+    let resp = match req.send().await {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("error fetching models: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let body: serde_json::Value = match resp.json().await {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("error parsing response: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let models = body["data"].as_array();
+    match models {
+        Some(list) => {
+            let mut ids: Vec<&str> = list.iter().filter_map(|m| m["id"].as_str()).collect();
+            ids.sort();
+            for id in ids {
+                println!("{}", id);
+            }
+        }
+        None => {
+            eprintln!("unexpected response: {}", body);
+            std::process::exit(1);
+        }
+    }
+}
+
 // -- Main --------------------------------------------------------------------
 
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+    let prov = provider_config(&cli.provider);
+    let api_key = get_api_key(&prov);
+
+    // No model: list available models and exit
+    let model = match cli.model {
+        Some(m) => m,
+        None => {
+            list_models(&cli.provider, &prov, &api_key).await;
+            return;
+        }
+    };
 
     let (system, mut messages) = if io::stdin().is_terminal() {
         (String::new(), Vec::<AgentMessage>::new())
@@ -228,26 +314,16 @@ async fn main() {
         std::process::exit(1);
     }
 
-    let (mut agent, key_var) = match cli.provider.as_str() {
-        "anthropic" => (Agent::new(AnthropicProvider), "ANTHROPIC_API_KEY"),
-        "openai" => (
-            Agent::new(OpenAiCompatProvider)
-                .with_model_config(ModelConfig::openai(&cli.model, &cli.model)),
-            "OPENAI_API_KEY",
-        ),
-        other => {
-            eprintln!("unknown provider: {}", other);
-            std::process::exit(1);
+    let mut agent = match cli.provider.as_str() {
+        "anthropic" => Agent::new(AnthropicProvider),
+        "openai" => {
+            Agent::new(OpenAiCompatProvider).with_model_config(ModelConfig::openai(&model, &model))
         }
+        _ => unreachable!(),
     };
 
-    let api_key = std::env::var(key_var).unwrap_or_else(|_| {
-        eprintln!("{} not set", key_var);
-        std::process::exit(1);
-    });
-
     agent = agent
-        .with_model(&cli.model)
+        .with_model(&model)
         .with_api_key(api_key)
         .with_tools(default_tools());
 
