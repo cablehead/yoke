@@ -4,7 +4,7 @@ use clap::Parser;
 use serde::Serialize;
 use tokio::sync::mpsc;
 
-use yoagent::provider::AnthropicProvider;
+use yoagent::provider::{AnthropicProvider, ModelConfig, OpenAiCompatProvider};
 use yoagent::tools::default_tools;
 use yoagent::types::*;
 use yoagent::Agent;
@@ -15,6 +15,10 @@ struct Cli {
     /// Model identifier (e.g. claude-sonnet-4-20250514)
     #[arg(long)]
     model: String,
+
+    /// Provider: anthropic (default), openai
+    #[arg(long, default_value = "anthropic")]
+    provider: String,
 
     /// Optional trailing prompt appended as a final user message
     #[arg()]
@@ -224,9 +228,21 @@ async fn main() {
         std::process::exit(1);
     }
 
-    let api_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
+    let mut agent = match cli.provider.as_str() {
+        "anthropic" => Agent::new(AnthropicProvider),
+        "openai" => Agent::new(OpenAiCompatProvider)
+            .with_model_config(ModelConfig::openai(&cli.model, &cli.model)),
+        other => {
+            eprintln!("unknown provider: {}", other);
+            std::process::exit(1);
+        }
+    };
 
-    let mut agent = Agent::new(AnthropicProvider)
+    let api_key = std::env::var("ANTHROPIC_API_KEY")
+        .or_else(|_| std::env::var("API_KEY"))
+        .unwrap_or_default();
+
+    agent = agent
         .with_model(&cli.model)
         .with_api_key(api_key)
         .with_tools(default_tools());
