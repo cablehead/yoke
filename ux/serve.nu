@@ -103,6 +103,14 @@ def page [] {
             }
           }
         })
+        (INPUT {
+          type: "text",
+          placeholder: "filter models...",
+          "data-bind": "model_filter",
+          "data-on:input.debounce_200ms": "@get('/models')",
+          value: "",
+          style: "width: 10rem;"
+        })
         (SPAN {id: "model-select-wrapper"} (render-model-select $models $DEFAULT_MODEL))
       )
       (DIV {id: "output"} "")
@@ -112,8 +120,14 @@ def page [] {
 def handle-models [req: record] {
   let signals = $in | from datastar-signals $req
   let provider = $signals.provider? | default $DEFAULT_PROVIDER
+  let filter = $signals.model_filter? | default ""
 
-  let models = try { yoke --provider $provider | from json -o | get id } catch { [] }
+  let all_models = try { yoke --provider $provider | from json -o | get id } catch { [] }
+  let models = if ($filter | is-empty) {
+    $all_models
+  } else {
+    $all_models | where { $in | str contains -i $filter }
+  }
   let selected = $models | get -i 0 | default ""
 
   [
