@@ -67,11 +67,8 @@ def handle-sse [req: record] {
 
   let _ = $in
   yoke --provider anthropic --model $model --tools none $prompt
-    | lines
-    | each {|line|
-        let event = try { $line | from json } catch { null }
-        if $event == null { return }
-
+    | from json -o
+    | each {|event|
         if ($event.type? == "delta" and $event.kind? == "text") {
           (SPAN $event.delta | to datastar-patch-elements --selector "#output" --mode append)
         } else if ($event.type? == "agent_start") {
