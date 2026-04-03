@@ -100,6 +100,95 @@ export def render-finished [
   )
 }
 
+# Render a user message card
+export def render-user [text: string] {
+  DIV {style: "background: #e8f0fe; border: 1px solid #c4d8f0; border-radius: 0.5rem; padding: 0.75rem 1rem; margin-bottom: 0.75rem; font-size: 0.9375rem;"} $text
+}
+
+# Render a tool result card
+export def render-tool-result [tool_name: string, content: string, --is-error] {
+  let border = if $is_error { "border-left: 3px solid #e74c3c;" } else { "border-left: 3px solid #27ae60;" }
+  let bg = if $is_error { "background: #fdf0ef;" } else { "background: #f0faf4;" }
+  DIV {style: $"($bg) ($border) border-radius: 0.25rem; padding: 0.5rem 0.75rem; margin-bottom: 0.75rem; font-size: 0.8125rem;"} [
+    (DIV {style: "font-weight: 600; font-size: 0.75rem; color: #555; margin-bottom: 0.25rem;"} $tool_name)
+    (PRE {style: "margin: 0; white-space: pre-wrap; font-size: 0.75rem; max-height: 12rem; overflow-y: auto;"} $content)
+  ]
+}
+
+# Render an assistant message card (without the outer #output div)
+export def render-assistant [msg: record] {
+  let text = $msg.content?
+    | default []
+    | where { $in.type? == "text" }
+    | get text?
+    | compact
+    | str join ""
+  let usage = $msg.usage? | default {}
+  let model = $msg.model? | default ""
+  let meta = $msg.metadata? | default null
+  let rendered = $text | .md
+
+  let sources = if $meta != null {
+    render-sources $meta
+  } else {
+    null
+  }
+
+  DIV {style: "background: #fff; border: 1px solid #e0e0e0; border-radius: 0.5rem; overflow: hidden; margin-bottom: 0.75rem;"} [
+    (DIV {style: "padding: 1rem;"} $rendered)
+    ...( if $sources != null { [$sources] } else { [] } )
+    (DIV {style: "padding: 0.5rem 1rem; background: #f8f8f8; border-top: 1px solid #e0e0e0; font-size: 0.75rem; display: flex; justify-content: space-between; align-items: center;"} [
+      (SPAN {style: "color: #888;"} $model)
+      (SPAN ...(render-usage $usage))
+    ])
+  ]
+}
+
+# Render a complete run as a stack of cards from stored JSONL lines
+export def render-run [lines: list] {
+  $lines | each {|msg|
+    match $msg.role? {
+      "user" => {
+        let text = $msg.content?
+          | default []
+          | where { $in.type? == "text" }
+          | get text?
+          | compact
+          | str join ""
+        render-user $text
+      }
+      "assistant" => {
+        # Skip assistant messages that only have tool calls (no text)
+        let has_text = $msg.content?
+          | default []
+          | where { $in.type? == "text" and ($in.text? | default "" | str length) > 0 }
+          | length
+        if $has_text > 0 {
+          render-assistant $msg
+        } else {
+          null
+        }
+      }
+      "toolResult" => {
+        let tool_name = $msg.toolName? | default "tool"
+        let content = $msg.content?
+          | default []
+          | where { $in.type? == "text" }
+          | get text?
+          | compact
+          | str join "\n"
+        let is_error = $msg.isError? | default false
+        if $is_error {
+          render-tool-result $tool_name $content --is-error
+        } else {
+          render-tool-result $tool_name $content
+        }
+      }
+      _ => null
+    }
+  } | compact
+}
+
 # Process a stream of yoke JSONL lines into Datastar patch-elements records.
 # Uses `generate` for streaming accumulation.
 export def "render yoke-stream" [--model (-m): string = ""] {

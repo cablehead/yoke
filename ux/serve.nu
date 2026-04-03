@@ -125,27 +125,8 @@ def run-page [id: string] {
   let frame = .get $id
   let content = .cas $frame.hash
   let lines = $content | lines | each { from json }
-  let assistant_msg = $lines | where { $in.role? == "assistant" } | get -i 0
 
-  if $assistant_msg == null {
-    return "run not found"
-  }
-
-  let text = $assistant_msg.content?
-    | default []
-    | where { $in.type? == "text" }
-    | get text?
-    | compact
-    | str join ""
-  let usage = $assistant_msg.usage? | default {}
-  let model = $assistant_msg.model? | default ""
-  let meta = $assistant_msg.metadata? | default null
-
-  let card = if $meta != null {
-    render-finished $text $model $usage --metadata $meta
-  } else {
-    render-finished $text $model $usage
-  }
+  let cards = render-run $lines
 
   HTML (
     HEAD
@@ -156,7 +137,7 @@ def run-page [id: string] {
   ) (
     BODY
       (nav-bar (A {href: "/runs"} "history") (A {href: "/"} "new"))
-      $card
+      (DIV ...$cards)
   )
 }
 

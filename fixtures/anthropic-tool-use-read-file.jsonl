@@ -1,0 +1,24 @@
+{"type":"agent_start"}
+{"type":"turn_start"}
+{"role":"user","content":[{"type":"text","text":"read the file /root/yoke/Cargo.toml and tell me the version"}],"timestamp":1775228075176}
+{"type":"delta","kind":"text","delta":"I'll read the Cargo.to"}
+{"type":"delta","kind":"text","delta":"ml file to find the version information for you."}
+{"type":"delta","kind":"tool_call","delta":""}
+{"type":"delta","kind":"tool_call","delta":"{\""}
+{"type":"delta","kind":"tool_call","delta":"path\""}
+{"type":"delta","kind":"tool_call","delta":": \"/root/yok"}
+{"type":"delta","kind":"tool_call","delta":"e/Ca"}
+{"type":"delta","kind":"tool_call","delta":"rgo"}
+{"type":"delta","kind":"tool_call","delta":".toml\"}"}
+{"role":"assistant","content":[{"type":"text","text":"I'll read the Cargo.toml file to find the version information for you."},{"type":"toolCall","id":"toolu_018UKLYnyBBKQXBji3AHiP2H","name":"read_file","arguments":{"path":"/root/yoke/Cargo.toml"}}],"stopReason":"toolUse","model":"claude-sonnet-4-20250514","provider":"anthropic","usage":{"input":1126,"output":82,"cache_read":0,"cache_write":0,"total_tokens":0},"timestamp":1775228076725}
+{"type":"tool_execution_start","tool_call_id":"toolu_018UKLYnyBBKQXBji3AHiP2H","tool_name":"read_file","args":{"path":"/root/yoke/Cargo.toml"}}
+{"type":"tool_execution_end","tool_call_id":"toolu_018UKLYnyBBKQXBji3AHiP2H","tool_name":"read_file","result":{"content":[{"type":"text","text":"[15 lines]\n   1 | [package]\n   2 | name = \"yoke\"\n   3 | version = \"0.1.0-dev\"\n   4 | edition = \"2021\"\n   5 | description = \"Headless agent harness. JSONL in, JSONL out.\"\n   6 | license = \"MIT\"\n   7 | \n   8 | [dependencies]\n   9 | yoagent = { path = \"yoagent\" }\n  10 | tokio = { version = \"1\", features = [\"full\"] }\n  11 | serde = { version = \"1\", features = [\"derive\"] }\n  12 | serde_json = \"1\"\n  13 | clap = { version = \"4\", features = [\"derive\"] }\n  14 | reqwest = { version = \"0.13.2\", features = [\"json\"] }\n  15 | chrono = { version = \"0.4.44\", default-features = false, features = [\"clock\"] }"}],"details":{"path":"/root/yoke/Cargo.toml"}},"is_error":false}
+{"role":"toolResult","toolCallId":"toolu_018UKLYnyBBKQXBji3AHiP2H","toolName":"read_file","content":[{"type":"text","text":"[15 lines]\n   1 | [package]\n   2 | name = \"yoke\"\n   3 | version = \"0.1.0-dev\"\n   4 | edition = \"2021\"\n   5 | description = \"Headless agent harness. JSONL in, JSONL out.\"\n   6 | license = \"MIT\"\n   7 | \n   8 | [dependencies]\n   9 | yoagent = { path = \"yoagent\" }\n  10 | tokio = { version = \"1\", features = [\"full\"] }\n  11 | serde = { version = \"1\", features = [\"derive\"] }\n  12 | serde_json = \"1\"\n  13 | clap = { version = \"4\", features = [\"derive\"] }\n  14 | reqwest = { version = \"0.13.2\", features = [\"json\"] }\n  15 | chrono = { version = \"0.4.44\", default-features = false, features = [\"clock\"] }"}],"isError":false,"timestamp":1775228076726}
+{"type":"turn_end"}
+{"type":"turn_start"}
+{"type":"delta","kind":"text","delta":"The"}
+{"type":"delta","kind":"text","delta":" version of the yoke package is **0.1.0-dev** (as shown on line 3 "}
+{"type":"delta","kind":"text","delta":"of the Cargo.toml file)."}
+{"role":"assistant","content":[{"type":"text","text":"The version of the yoke package is **0.1.0-dev** (as shown on line 3 of the Cargo.toml file)."}],"stopReason":"stop","model":"claude-sonnet-4-20250514","provider":"anthropic","usage":{"input":267,"output":37,"cache_read":0,"cache_write":1199,"total_tokens":0},"timestamp":1775228078530}
+{"type":"turn_end"}
+{"type":"agent_end"}
