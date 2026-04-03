@@ -54,20 +54,20 @@ def nav-bar [...right] {
 }
 
 def render-model-select [models: list, selected: string] {
-  let size = [($models | length) 8] | math min
-  let size = [1 $size] | math max
-  SELECT {
+  DIV {
     id: "model-select",
-    "data-bind": "model",
-    size: $size,
-    style: "width: 100%; font-family: ui-monospace, monospace; font-size: 0.75rem; border: none; outline: none; padding: 0.25rem 0;"
+    style: "max-height: 12rem; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 0.75rem;"
   } {
     $models | each {|m|
-      if $m == $selected {
-        OPTION {value: $m, selected: true, style: "padding: 0.3rem 0.5rem;"} $m
+      let style = if $m == $selected {
+        "padding: 0.3rem 0.5rem; cursor: pointer; border-radius: 0.25rem; background: #e8f0fe; color: #1a4b8c;"
       } else {
-        OPTION {value: $m, style: "padding: 0.3rem 0.5rem;"} $m
+        "padding: 0.3rem 0.5rem; cursor: pointer; border-radius: 0.25rem;"
       }
+      DIV {
+        style: $style,
+        "data-on:click": $"$model = '($m)'; @get('/models')"
+      } $m
     }
   }
 }
