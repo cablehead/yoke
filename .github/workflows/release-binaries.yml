@@ -36,6 +36,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Set version
         id: version
@@ -88,6 +90,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
