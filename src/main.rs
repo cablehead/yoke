@@ -13,7 +13,7 @@ use yoagent::types::*;
 use yoagent::Agent;
 
 #[derive(Parser)]
-#[command(about = "Headless agent harness. JSONL in, JSONL out.")]
+#[command(about = "Headless agent harness. JSONL in, JSONL out.", version)]
 struct Cli {
     /// Provider: anthropic, openai, gemini
     #[arg(long)]
