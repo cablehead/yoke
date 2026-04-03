@@ -32,7 +32,7 @@ def page [] {
       (DIV {
         "data-signals": $"{prompt: '', model: '($DEFAULT_MODEL)'}"
       }
-        (FORM {"data-on:submit.prevent": ""}
+        (FORM {"data-on:submit.prevent": "void 0"}
           (INPUT {
             type: "text",
             placeholder: "ask something...",
