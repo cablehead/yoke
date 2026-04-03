@@ -66,7 +66,7 @@ def render-model-select [models: list, selected: string] {
       }
       DIV {
         style: $style,
-        "data-on:click": $"$model = '($m)'; @get('/models')"
+        "data-on:click": ("$model = '" + $m + "'; @get('/models')")
       } $m
     }
   }
