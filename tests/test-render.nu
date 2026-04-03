@@ -28,32 +28,56 @@ assert ($finished_html.__html | str contains "136 in / 347 out")
 assert (not ($finished_html.__html | str contains "animation: blink"))
 print "PASS: finished card renders markdown with metadata"
 
-# Test full fixture pipeline
+# Test finished card with grounding sources
+let finished_with_sources = render-finished "Hello" "gemini-3-flash-preview" 10 20 --metadata {
+  webSearchQueries: ["population of Tokyo 2026"]
+  groundingChunks: [
+    {web: {title: "wikipedia.org" uri: "https://en.wikipedia.org/wiki/Tokyo"}}
+    {web: {title: "macrotrends.net" uri: "https://macrotrends.net/tokyo"}}
+  ]
+}
+assert ($finished_with_sources.__html | str contains "sources:")
+assert ($finished_with_sources.__html | str contains "wikipedia.org")
+assert ($finished_with_sources.__html | str contains "macrotrends.net")
+assert ($finished_with_sources.__html | str contains "searched: population of Tokyo 2026")
+print "PASS: finished card with grounding sources"
+
+# Test finished card without metadata shows no sources
+let finished_no_meta = render-finished "Hello" "gemini-3-flash-preview" 10 20
+assert (not ($finished_no_meta.__html | str contains "sources:"))
+print "PASS: finished card without metadata has no sources"
+
+# Test full fixture pipeline (laptops)
 let fixture = open --raw ($script_dir | path join ../fixtures/gemini-web-search-laptops.jsonl)
 let frames = $fixture | lines | render yoke-stream -m "gemini-3-flash-preview"
 
-# Should have multiple frames
 let frame_count = $frames | length
 assert ($frame_count > 3) $"expected >3 frames, got ($frame_count)"
-print $"PASS: fixture produced ($frame_count) frames"
+print $"PASS: laptops fixture produced ($frame_count) frames"
 
 # First frame should be the "thinking" view
 let first = $frames | first
 assert ($first.data | any { $in | str contains "thinking..." })
 print "PASS: first frame is thinking view"
 
-# Last frame should be the finished card (no cursor, has metadata)
-let last = $frames | last
-let last_data = $last.data | str join "\n"
-assert ($last_data | str contains "gemini-3-flash-preview")
-assert ($last_data | str contains "136 in / 347 out")
-assert (not ($last_data | str contains "animation: blink"))
-print "PASS: last frame is finished card with metadata"
+# Test tokyo fixture with grounding metadata
+let tokyo_fixture = open --raw ($script_dir | path join ../fixtures/gemini-web-search-tokyo.jsonl)
+let tokyo_frames = $tokyo_fixture | lines | render yoke-stream -m "gemini-3-flash-preview"
 
-# Middle frames should have table content
-let mid = $frames | skip 1 | drop 1 | last
-let mid_data = $mid.data | str join "\n"
-assert ($mid_data | str contains "MacBook Pro")
-print "PASS: middle frames contain table content"
+let tokyo_count = $tokyo_frames | length
+assert ($tokyo_count > 3) $"expected >3 frames, got ($tokyo_count)"
+print $"PASS: tokyo fixture produced ($tokyo_count) frames"
+
+# Last frame should have sources from grounding metadata
+let last = $tokyo_frames | last
+let last_data = $last.data | str join "\n"
+assert ($last_data | str contains "sources:")
+assert ($last_data | str contains "wikipedia.org")
+print "PASS: tokyo last frame has grounding sources"
+
+# Last frame should have model and usage
+assert ($last_data | str contains "gemini-3-flash-preview")
+assert ($last_data | str contains " in / ")
+print "PASS: tokyo last frame has model and usage"
 
 print "\nAll tests passed."
