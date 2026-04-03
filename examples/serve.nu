@@ -40,7 +40,7 @@ def page [] {
           })
           (BUTTON {
             type: "button",
-            "data-on:click": "$prompt && $$get('/sse?prompt=' + encodeURIComponent($prompt) + '&model=' + encodeURIComponent($model))"
+            "data-on:click": "$prompt && @get('/sse?prompt=' + encodeURIComponent($prompt) + '&model=' + encodeURIComponent($model))"
           } "send")
         )
         (P {class: "meta"}
