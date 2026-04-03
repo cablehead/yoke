@@ -31,11 +31,19 @@ assert ($finished_html.__html | str contains " out")
 assert (not ($finished_html.__html | str contains "animation: blink"))
 print "PASS: finished card renders markdown with metadata"
 
-# Test finished card with thinking tokens
-let finished_thinking = render-finished "Hello" "gemini-3-flash-preview" {input: 71, output: 518, thinking_tokens: 589}
-assert ($finished_thinking.__html | str contains ">589<")
-assert ($finished_thinking.__html | str contains " think ")
-print "PASS: finished card shows thinking tokens"
+# Test finished card with thinking and search tokens
+let finished_full = render-finished "Hello" "gemini-3-flash-preview" {input: 145, output: 524, thinking_tokens: 943, search_tokens: 1404}
+assert ($finished_full.__html | str contains ">943<")
+assert ($finished_full.__html | str contains " think ")
+assert ($finished_full.__html | str contains ">1404<")
+assert ($finished_full.__html | str contains " search ")
+print "PASS: finished card shows thinking and search tokens"
+
+# Zero-value tokens are omitted
+let finished_minimal = render-finished "Hello" "gemini-3-flash-preview" {input: 10, output: 20, thinking_tokens: 0, search_tokens: 0}
+assert (not ($finished_minimal.__html | str contains " think "))
+assert (not ($finished_minimal.__html | str contains " search "))
+print "PASS: zero-value tokens are omitted"
 
 # Test finished card with grounding sources
 let finished_with_sources = render-finished "Hello" "gemini-3-flash-preview" {input: 10, output: 20} --metadata {

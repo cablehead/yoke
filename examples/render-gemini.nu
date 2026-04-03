@@ -56,33 +56,21 @@ def render-sources [metadata: record] {
 
 # Render token usage as a compact display
 def render-usage [usage: record] {
-  let dim = "color: #aaa;"
+  let dim = "color: #aaa; font-size: 0.6875rem;"
   let val = "color: #666;"
 
-  mut parts = []
-  let input = $usage.input? | default 0
-  let output = $usage.output? | default 0
-  let thinking = $usage.thinking_tokens? | default 0
-  let cache_read = $usage.cache_read? | default 0
+  let fields = [
+    [($usage.input? | default 0) "in"]
+    [($usage.search_tokens? | default 0) "search"]
+    [($usage.thinking_tokens? | default 0) "think"]
+    [($usage.output? | default 0) "out"]
+    [($usage.cache_read? | default 0) "cached"]
+  ]
 
-  $parts = ($parts | append (SPAN {style: $val} $"($input)"))
-  $parts = ($parts | append (SPAN {style: $dim} " in "))
-
-  if $thinking > 0 {
-    $parts = ($parts | append (SPAN {style: $val} $"($thinking)"))
-    $parts = ($parts | append (SPAN {style: $dim} " think "))
-  }
-
-  $parts = ($parts | append (SPAN {style: $val} $"($output)"))
-  $parts = ($parts | append (SPAN {style: $dim} " out"))
-
-  if $cache_read > 0 {
-    $parts = ($parts | append (SPAN {style: $dim} " / "))
-    $parts = ($parts | append (SPAN {style: $val} $"($cache_read)"))
-    $parts = ($parts | append (SPAN {style: $dim} " cached"))
-  }
-
-  $parts
+  $fields
+    | where { $in.0 > 0 }
+    | each {|f| [(SPAN {style: $val} $"($f.0)") (SPAN {style: $dim} $" ($f.1) ")]}
+    | flatten
 }
 
 # Render the finished response card
