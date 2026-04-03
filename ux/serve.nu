@@ -107,7 +107,7 @@ def page [] {
           type: "text",
           placeholder: "filter models...",
           "data-bind": "model_filter",
-          "data-on:input.debounce_200ms": "@get('/models')",
+          "data-on:input__debounce.200ms": "@get('/models')",
           value: "",
           style: "width: 10rem;"
         })
