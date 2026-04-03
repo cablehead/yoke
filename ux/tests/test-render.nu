@@ -1,12 +1,12 @@
 # test-render.nu - test the render-gemini module against fixtures
 #
 # Run with:
-#   http-nu eval tests/test-render.nu
+#   http-nu eval ux/tests/test-render.nu
 
 use std/assert
 
 const script_dir = path self | path dirname
-source ($script_dir | path join ../examples/render-gemini.nu)
+source ($script_dir | path join ../render-gemini.nu)
 
 # Test streaming view renders markdown
 let streaming_html = render-streaming "## Hello\n\n**bold** text"
@@ -65,7 +65,7 @@ assert (not ($finished_no_meta.__html | str contains "sources:"))
 print "PASS: finished card without metadata has no sources"
 
 # Test full fixture pipeline (laptops)
-let fixture = open --raw ($script_dir | path join ../fixtures/gemini-web-search-laptops.jsonl)
+let fixture = open --raw ($script_dir | path join ../../fixtures/gemini-web-search-laptops.jsonl)
 let frames = $fixture | lines | render yoke-stream -m "gemini-3-flash-preview"
 
 let frame_count = $frames | length
@@ -78,7 +78,7 @@ assert ($first.data | any { $in | str contains "thinking..." })
 print "PASS: first frame is thinking view"
 
 # Test tokyo fixture with grounding metadata
-let tokyo_fixture = open --raw ($script_dir | path join ../fixtures/gemini-web-search-tokyo.jsonl)
+let tokyo_fixture = open --raw ($script_dir | path join ../../fixtures/gemini-web-search-tokyo.jsonl)
 let tokyo_frames = $tokyo_fixture | lines | render yoke-stream -m "gemini-3-flash-preview"
 
 let tokyo_count = $tokyo_frames | length
