@@ -1,4 +1,5 @@
 /target
 captures/
+store/
 *.jsonl
 !fixtures/*.jsonl
