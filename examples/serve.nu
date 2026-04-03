@@ -30,7 +30,7 @@ def page [] {
     BODY
       (H1 "yoke")
       (DIV {
-        "data-signals": ({prompt: "", model: $DEFAULT_MODEL} | to json -r)
+        "data-signals": $"{prompt: '', model: '($DEFAULT_MODEL)'}"
       }
         (FORM {"data-on:submit.prevent": ""}
           (INPUT {
