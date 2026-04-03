@@ -316,27 +316,15 @@ fn get_api_key(config: &ProviderConfig) -> String {
 async fn list_models(provider: &str, config: &ProviderConfig, api_key: &str) {
     let client = reqwest::Client::new();
 
-    let (req, list_key, id_key) = match provider {
-        "anthropic" => (
-            client
-                .get(config.models_url)
-                .header("x-api-key", api_key)
-                .header("anthropic-version", "2023-06-01"),
-            "data",
-            "id",
-        ),
-        "gemini" => (
-            client.get(format!("{}?key={}", config.models_url, api_key)),
-            "models",
-            "name",
-        ),
-        _ => (
-            client
-                .get(config.models_url)
-                .header("authorization", format!("Bearer {}", api_key)),
-            "data",
-            "id",
-        ),
+    let req = match provider {
+        "anthropic" => client
+            .get(config.models_url)
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01"),
+        "gemini" => client.get(format!("{}?key={}", config.models_url, api_key)),
+        _ => client
+            .get(config.models_url)
+            .header("authorization", format!("Bearer {}", api_key)),
     };
 
     let resp = match req.send().await {
@@ -355,26 +343,147 @@ async fn list_models(provider: &str, config: &ProviderConfig, api_key: &str) {
         }
     };
 
-    match body[list_key].as_array() {
-        Some(list) => {
-            let mut ids: Vec<String> = list
-                .iter()
-                .filter_map(|m| {
-                    let raw = m[id_key].as_str()?;
-                    // Google prefixes with "models/" -- strip it
-                    Some(raw.strip_prefix("models/").unwrap_or(raw).to_string())
-                })
-                .collect();
-            ids.sort();
-            for id in ids {
-                println!("{}", id);
-            }
-        }
+    let list_key = match provider {
+        "gemini" => "models",
+        _ => "data",
+    };
+
+    let list = match body[list_key].as_array() {
+        Some(l) => l,
         None => {
             eprintln!("unexpected response: {}", body);
             std::process::exit(1);
         }
+    };
+
+    let mut models: Vec<serde_json::Value> = list
+        .iter()
+        .filter_map(|m| normalize_model(provider, m))
+        .collect();
+
+    models.sort_by(|a, b| {
+        let a_created = a.get("created").and_then(|v| v.as_str()).unwrap_or("");
+        let b_created = b.get("created").and_then(|v| v.as_str()).unwrap_or("");
+        b_created.cmp(a_created)
+    });
+
+    for model in &models {
+        if let Ok(json) = serde_json::to_string(model) {
+            println!("{}", json);
+        }
     }
+}
+
+fn normalize_model(provider: &str, raw: &serde_json::Value) -> Option<serde_json::Value> {
+    let mut out = serde_json::Map::new();
+
+    match provider {
+        "anthropic" => {
+            out.insert("id".into(), raw.get("id")?.clone());
+            if let Some(v) = raw.get("display_name") {
+                out.insert("name".into(), v.clone());
+            }
+            if let Some(v) = raw.get("created_at") {
+                out.insert("created".into(), v.clone());
+            }
+            if let Some(v) = raw.get("max_input_tokens") {
+                out.insert("input_tokens".into(), v.clone());
+            }
+            if let Some(v) = raw.get("max_tokens") {
+                out.insert("output_tokens".into(), v.clone());
+            }
+            if let Some(caps) = raw.get("capabilities") {
+                out.insert("capabilities".into(), caps.clone());
+            }
+        }
+        "openai" => {
+            out.insert("id".into(), raw.get("id")?.clone());
+            if let Some(ts) = raw.get("created").and_then(|v| v.as_i64()) {
+                let iso = chrono_from_unix(ts);
+                out.insert("created".into(), serde_json::Value::String(iso));
+            }
+            if let Some(v) = raw.get("owned_by") {
+                out.insert("owned_by".into(), v.clone());
+            }
+        }
+        "gemini" => {
+            let name = raw.get("name")?.as_str()?;
+            let id = name.strip_prefix("models/").unwrap_or(name);
+            out.insert("id".into(), serde_json::Value::String(id.to_string()));
+            if let Some(v) = raw.get("displayName") {
+                out.insert("name".into(), v.clone());
+            }
+            if let Some(v) = raw.get("description") {
+                out.insert("description".into(), v.clone());
+            }
+            if let Some(v) = raw.get("inputTokenLimit") {
+                out.insert("input_tokens".into(), v.clone());
+            }
+            if let Some(v) = raw.get("outputTokenLimit") {
+                out.insert("output_tokens".into(), v.clone());
+            }
+        }
+        _ => return None,
+    }
+
+    Some(serde_json::Value::Object(out))
+}
+
+fn chrono_from_unix(ts: i64) -> String {
+    let secs = ts;
+    let days = secs / 86400;
+    let rem = secs % 86400;
+    let hours = rem / 3600;
+    let mins = (rem % 3600) / 60;
+    let secs_r = rem % 60;
+
+    // days since 1970-01-01
+    let mut y = 1970i64;
+    let mut d = days;
+    loop {
+        let dy = if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) {
+            366
+        } else {
+            365
+        };
+        if d < dy {
+            break;
+        }
+        d -= dy;
+        y += 1;
+    }
+    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+    let mdays = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    let mut m = 0usize;
+    for md in &mdays {
+        if d < *md {
+            break;
+        }
+        d -= md;
+        m += 1;
+    }
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        y,
+        m + 1,
+        d + 1,
+        hours,
+        mins,
+        secs_r
+    )
 }
 
 // -- Main --------------------------------------------------------------------
