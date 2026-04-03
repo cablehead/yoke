@@ -5,7 +5,10 @@ use serde::Serialize;
 use tokio::sync::mpsc;
 
 use yoagent::provider::{AnthropicProvider, GoogleProvider, ModelConfig, OpenAiCompatProvider};
-use yoagent::tools::{default_tools, WebSearchTool};
+use yoagent::tools::{
+    default_tools, BashTool, EditFileTool, ListFilesTool, ReadFileTool, SearchTool, WebSearchTool,
+    WriteFileTool,
+};
 use yoagent::types::*;
 use yoagent::Agent;
 
@@ -19,6 +22,12 @@ struct Cli {
     /// Model identifier (e.g. claude-sonnet-4-20250514)
     #[arg(long)]
     model: Option<String>,
+
+    /// Tools to enable (comma-separated). Groups: all, code, web_search, none.
+    /// Individual: bash, read_file, write_file, edit_file, list_files, search, web_search.
+    /// Default: all
+    #[arg(long, default_value = "all")]
+    tools: String,
 
     /// Optional trailing prompt appended as a final user message
     #[arg()]
@@ -207,6 +216,40 @@ fn handle_event(event: &AgentEvent) {
     }
 }
 
+// -- Tool selection ----------------------------------------------------------
+
+fn build_tools(spec: &str) -> Vec<Box<dyn AgentTool>> {
+    let mut tools: Vec<Box<dyn AgentTool>> = Vec::new();
+    let parts: Vec<&str> = spec.split(',').map(|s| s.trim()).collect();
+
+    for part in &parts {
+        match *part {
+            "all" => {
+                tools = default_tools();
+                tools.push(Box::new(WebSearchTool));
+                return tools;
+            }
+            "none" => return Vec::new(),
+            "code" => {
+                tools.append(&mut default_tools());
+            }
+            "bash" => tools.push(Box::new(BashTool::default())),
+            "read_file" => tools.push(Box::new(ReadFileTool::default())),
+            "write_file" => tools.push(Box::new(WriteFileTool::new())),
+            "edit_file" => tools.push(Box::new(EditFileTool::new())),
+            "list_files" => tools.push(Box::new(ListFilesTool::default())),
+            "search" => tools.push(Box::new(SearchTool::default())),
+            "web_search" => tools.push(Box::new(WebSearchTool)),
+            other => {
+                eprintln!("unknown tool: {}", other);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    tools
+}
+
 // -- Provider config ---------------------------------------------------------
 
 struct ProviderConfig {
@@ -390,11 +433,7 @@ async fn main() {
     agent = agent
         .with_model(&model)
         .with_api_key(api_key)
-        .with_tools({
-            let mut tools = default_tools();
-            tools.push(Box::new(WebSearchTool));
-            tools
-        })
+        .with_tools(build_tools(&cli.tools))
         .on_error(|e| eprintln!("error: {}", e));
 
     if !system.is_empty() {
