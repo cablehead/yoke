@@ -54,7 +54,9 @@ def nav-bar [...right] {
 }
 
 def render-model-select [models: list, selected: string] {
-  SELECT {id: "model-select", "data-bind": "model"} {
+  let size = [($models | length) 8] | math min
+  let size = [1 $size] | math max
+  SELECT {id: "model-select", "data-bind": "model", size: $size, style: "width: 100%; font-family: ui-monospace, monospace; font-size: 0.75rem;"} {
     $models | each {|m|
       if $m == $selected {
         OPTION {value: $m, selected: true} $m
@@ -109,10 +111,10 @@ def page [] {
           "data-bind": "model_filter",
           "data-on:input__debounce.200ms": "@get('/models')",
           value: "",
-          style: "width: 10rem;"
+          style: "flex: 1;"
         })
-        (SPAN {id: "model-select-wrapper"} (render-model-select $models $DEFAULT_MODEL))
       )
+      (DIV {id: "model-select-wrapper", style: "margin-bottom: 0.75rem;"} (render-model-select $models $DEFAULT_MODEL))
       (DIV {id: "output"} "")
   )
 }
