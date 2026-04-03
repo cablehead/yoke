@@ -45,7 +45,7 @@ def page [] {
           })
           (BUTTON {
             type: "button",
-            "data-on:click": "$prompt && @get('/sse?prompt=' + encodeURIComponent($prompt) + '&model=' + encodeURIComponent($model))"
+            "data-on:click": "$prompt && @get('/sse')"
           } "send")
         )
         (P {class: "meta"}
@@ -87,8 +87,9 @@ def code-page [] {
 }
 
 def handle-sse [req: record] {
-  let prompt = $req.query.prompt? | default ""
-  let model = $req.query.model? | default $DEFAULT_MODEL
+  let signals = from datastar-signals $req
+  let prompt = $signals.prompt? | default ""
+  let model = $signals.model? | default $DEFAULT_MODEL
 
   if ($prompt | is-empty) {
     {data: "no prompt"} | to sse
