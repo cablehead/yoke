@@ -139,16 +139,26 @@ fn parse_stdin() -> (String, Vec<AgentMessage>) {
 
 // -- Event emission ----------------------------------------------------------
 
+use std::io::Write;
+
+fn write_line(s: &str) {
+    let stdout = io::stdout();
+    let mut lock = stdout.lock();
+    if writeln!(lock, "{}", s).is_err() {
+        std::process::exit(0);
+    }
+}
+
 fn emit_context(message: &AgentMessage) {
     match serde_json::to_string(message) {
-        Ok(json) => println!("{}", json),
+        Ok(json) => write_line(&json),
         Err(e) => eprintln!("error serializing message: {}", e),
     }
 }
 
 fn emit_observation(obs: &Observation) {
     match serde_json::to_string(obs) {
-        Ok(json) => println!("{}", json),
+        Ok(json) => write_line(&json),
         Err(e) => eprintln!("error serializing event: {}", e),
     }
 }
@@ -296,12 +306,12 @@ fn provider_config(provider: &str) -> &'static ProviderConfig {
 }
 
 fn list_providers() {
-    println!("available providers:\n");
+    write_line("available providers:\n");
     for (name, config) in PROVIDERS {
-        println!("  {}", name);
-        println!("    env: {}", config.key_var);
-        println!("    key: {}", config.dashboard);
-        println!();
+        write_line(&format!("  {}", name));
+        write_line(&format!("    env: {}", config.key_var));
+        write_line(&format!("    key: {}", config.dashboard));
+        write_line("");
     }
 }
 
@@ -368,7 +378,7 @@ async fn list_models(provider: &str, config: &ProviderConfig, api_key: &str) {
 
     for model in &models {
         if let Ok(json) = serde_json::to_string(model) {
-            println!("{}", json);
+            write_line(&json);
         }
     }
 }
