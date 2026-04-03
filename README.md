@@ -180,8 +180,16 @@ open --raw session.jsonl | yoke --provider openai --model gpt-5.4-mini "summariz
 | openai | `OPENAI_API_KEY` | OpenAI Chat Completions |
 | gemini | `GEMINI_API_KEY` | Google Generative AI |
 
-## Build
+## Install
 
 ```nushell
+cargo install --git https://github.com/cablehead/yoke
+```
+
+Or build from source:
+
+```nushell
+git clone https://github.com/cablehead/yoke
+cd yoke
 cargo build --release
 ```
