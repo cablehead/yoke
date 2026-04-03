@@ -399,7 +399,9 @@ fn normalize_model(provider: &str, raw: &serde_json::Value) -> Option<serde_json
         "openai" => {
             out.insert("id".into(), raw.get("id")?.clone());
             if let Some(ts) = raw.get("created").and_then(|v| v.as_i64()) {
-                let iso = chrono_from_unix(ts);
+                let iso = chrono::DateTime::from_timestamp(ts, 0)
+                    .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+                    .unwrap_or_default();
                 out.insert("created".into(), serde_json::Value::String(iso));
             }
         }
@@ -424,63 +426,6 @@ fn normalize_model(provider: &str, raw: &serde_json::Value) -> Option<serde_json
     }
 
     Some(serde_json::Value::Object(out))
-}
-
-fn chrono_from_unix(ts: i64) -> String {
-    let secs = ts;
-    let days = secs / 86400;
-    let rem = secs % 86400;
-    let hours = rem / 3600;
-    let mins = (rem % 3600) / 60;
-    let secs_r = rem % 60;
-
-    // days since 1970-01-01
-    let mut y = 1970i64;
-    let mut d = days;
-    loop {
-        let dy = if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) {
-            366
-        } else {
-            365
-        };
-        if d < dy {
-            break;
-        }
-        d -= dy;
-        y += 1;
-    }
-    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
-    let mdays = [
-        31,
-        if leap { 29 } else { 28 },
-        31,
-        30,
-        31,
-        30,
-        31,
-        31,
-        30,
-        31,
-        30,
-        31,
-    ];
-    let mut m = 0usize;
-    for md in &mdays {
-        if d < *md {
-            break;
-        }
-        d -= md;
-        m += 1;
-    }
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        y,
-        m + 1,
-        d + 1,
-        hours,
-        mins,
-        secs_r
-    )
 }
 
 // -- Main --------------------------------------------------------------------
