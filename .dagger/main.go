@@ -36,11 +36,7 @@ func (m *Yoke) DarwinBuild(ctx context.Context, src *dagger.Directory, version s
 		WithExec([]string{"rustup", "update", "stable"}).
 		WithExec([]string{"rustup", "default", "stable"}).
 		WithExec([]string{"rustup", "target", "add", "aarch64-apple-darwin"}).
-		WithEnvVariable("CC_aarch64_apple_darwin", "aarch64-apple-darwin22.4-clang").
-		WithEnvVariable("CXX_aarch64_apple_darwin", "aarch64-apple-darwin22.4-clang++").
-		WithEnvVariable("AR_aarch64_apple_darwin", "aarch64-apple-darwin22.4-ar").
-		WithEnvVariable("CFLAGS_aarch64_apple_darwin", "-fuse-ld=/usr/local/osxcross/target/bin/aarch64-apple-darwin22.4-ld").
-		WithExec([]string{"cargo", "build", "--release", "--target", "aarch64-apple-darwin"})
+		WithExec([]string{"./scripts/cross-build-darwin.sh", "--release"})
 
 	container = container.WithExec([]string{"sh", "-c", `
 		mkdir -p /tmp/yoke-` + version + `

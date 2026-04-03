@@ -1,6 +1,6 @@
 [package]
 name = "yoke"
-version = "0.2.2-dev"
+version = "0.2.2"
 edition = "2021"
 description = "Headless agent harness. JSONL in, JSONL out."
 license = "MIT"
