@@ -65,6 +65,7 @@ def render-usage [usage: record] {
     [($usage.thinking_tokens? | default 0) "think"]
     [($usage.output? | default 0) "out"]
     [($usage.cache_read? | default 0) "cached"]
+    [($usage.total_tokens? | default 0) "total"]
   ]
 
   $fields
