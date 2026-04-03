@@ -13,7 +13,15 @@ use http-nu/html *
 
 source render-gemini.nu
 
+const DEFAULT_PROVIDER = "gemini"
 const DEFAULT_MODEL = "gemini-3-flash-preview"
+
+const PROVIDERS = [
+  [name label];
+  [anthropic Anthropic]
+  [openai OpenAI]
+  [gemini Gemini]
+]
 
 def styles [] {
   let theme_css = .highlight theme Dracula
@@ -21,7 +29,7 @@ def styles [] {
     (STYLE $theme_css)
     (STYLE "
       body { font-family: system-ui, sans-serif; max-width: 48rem; margin: 2rem auto; padding: 0 1rem; }
-      input[type=text] { flex: 1; padding: 0.5rem; font-size: 1rem; border: 1px solid #ccc; border-radius: 0.25rem; }
+      input[type=text], select { padding: 0.5rem; font-size: 0.8125rem; border: 1px solid #ccc; border-radius: 0.25rem; }
       button { padding: 0.5rem 1rem; font-size: 1rem; cursor: pointer; border-radius: 0.25rem; border: 1px solid #ccc; }
       nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
       nav a { font-size: 0.875rem; color: #666; text-decoration: none; }
@@ -33,6 +41,7 @@ def styles [] {
       .run-item:hover { background: #f8f8f8; }
       .run-item .prompt { font-size: 0.875rem; }
       .run-item .meta { font-size: 0.75rem; color: #888; margin-top: 0.25rem; }
+      .config-row { display: flex; gap: 0.5rem; align-items: center; font-size: 0.75rem; color: #888; margin-bottom: 0.75rem; }
     ")
   ]
 }
@@ -44,7 +53,21 @@ def nav-bar [...right] {
   ]
 }
 
+def render-model-select [models: list, selected: string] {
+  SELECT {id: "model-select", "data-bind": "model"} {
+    $models | each {|m|
+      if $m == $selected {
+        OPTION {value: $m, selected: true} $m
+      } else {
+        OPTION {value: $m} $m
+      }
+    }
+  }
+}
+
 def page [] {
+  let models = try { yoke --provider $DEFAULT_PROVIDER | from json -o | get id } catch { [$DEFAULT_MODEL] }
+
   HTML (
     HEAD
       (META {charset: "utf-8"})
@@ -55,28 +78,49 @@ def page [] {
   ) (
     BODY
       (nav-bar (A {href: "/runs"} "history") (A {href: "/code"} "source"))
-      (DIV {style: "display: flex; gap: 0.5rem; margin-bottom: 1rem;"}
+      (DIV {style: "display: flex; gap: 0.5rem; margin-bottom: 0.75rem;"}
         (INPUT {
           type: "text",
           placeholder: "ask something...",
           "data-bind": "prompt",
-          value: ""
+          value: "",
+          style: "flex: 1; font-size: 1rem;"
         })
         (BUTTON {
           "data-on:click": "$prompt && @get('/sse')"
         } "send")
       )
-      (P {style: "color: #888; font-size: 0.75rem; margin-top: 0.5rem;"}
-        (LABEL "model: ")
-        (INPUT {
-          type: "text",
-          "data-bind": "model",
-          value: $DEFAULT_MODEL,
-          style: "width: 20rem; font-size: 0.75rem; padding: 0.25rem;"
+      (DIV {class: "config-row"}
+        (SELECT {
+          "data-bind": "provider",
+          "data-on:change": "@get('/models')"
+        } {
+          $PROVIDERS | each {|p|
+            if $p.name == $DEFAULT_PROVIDER {
+              OPTION {value: $p.name, selected: true} $p.label
+            } else {
+              OPTION {value: $p.name} $p.label
+            }
+          }
         })
+        (SPAN {id: "model-select-wrapper"} (render-model-select $models $DEFAULT_MODEL))
       )
       (DIV {id: "output"} "")
   )
+}
+
+def handle-models [req: record] {
+  let signals = $in | from datastar-signals $req
+  let provider = $signals.provider? | default $DEFAULT_PROVIDER
+
+  let models = try { yoke --provider $provider | from json -o | get id } catch { [] }
+  let selected = $models | get -i 0 | default ""
+
+  [
+    (render-model-select $models $selected
+      | to datastar-patch-elements --selector "#model-select-wrapper" --mode inner)
+    ({model: $selected} | to datastar-patch-signals)
+  ] | to sse
 }
 
 def runs-page [] {
@@ -169,6 +213,7 @@ def code-page [] {
 def handle-sse [req: record] {
   let signals = $in | from datastar-signals $req
   let prompt = $signals.prompt? | default ""
+  let provider = $signals.provider? | default $DEFAULT_PROVIDER
   let model = $signals.model? | default $DEFAULT_MODEL
 
   if ($prompt | is-empty) {
@@ -176,7 +221,7 @@ def handle-sse [req: record] {
     return
   }
 
-  yoke --provider gemini --model $model --tools web_search $prompt
+  yoke --provider $provider --model $model --tools web_search $prompt
     | lines
     | tee {
         where { ($in | from json).role? != null }
@@ -190,6 +235,7 @@ def handle-sse [req: record] {
 {|req|
   dispatch $req [
     (route {path: "/"} {|req ctx| page})
+    (route {path: "/models"} {|req ctx| handle-models $req})
     (route {path: "/runs"} {|req ctx| runs-page})
     (route {path-matches: "/run/:id"} {|req ctx| run-page $ctx.id})
     (route {path: "/code"} {|req ctx| code-page})
