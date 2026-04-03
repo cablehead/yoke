@@ -20,7 +20,7 @@ func (m *Yoke) withCaches(container *dagger.Container, targetSuffix string) *dag
 
 func (m *Yoke) Upload(
 	ctx context.Context,
-	// +ignore=["**", "!Cargo.toml", "!Cargo.lock", "!src/**", "!scripts/**"]
+	// +ignore=["**", "!Cargo.toml", "!Cargo.lock", "!src/**", "!scripts/**", "!yoagent/**"]
 	src *dagger.Directory) *dagger.Directory {
 	return src
 }
