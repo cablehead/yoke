@@ -5,6 +5,8 @@
 #
 # Then open http://localhost:3001 in your browser.
 
+const script_dir = path self | path dirname
+
 use http-nu/router *
 use http-nu/datastar *
 use http-nu/html *
@@ -25,10 +27,13 @@ def page [] {
         input[type=text] { flex: 1; padding: 0.5rem; font-size: 1rem; border: 1px solid #ccc; border-radius: 0.25rem; }
         button { padding: 0.5rem 1rem; font-size: 1rem; cursor: pointer; border-radius: 0.25rem; border: 1px solid #ccc; }
         .meta { color: #888; font-size: 0.75rem; margin-top: 0.5rem; }
+        nav { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1rem; }
+        nav a { font-size: 0.875rem; color: #666; text-decoration: none; }
+        nav a:hover { color: #333; }
       ")
   ) (
     BODY
-      (H1 "yoke")
+      (NAV (H1 "yoke") (A {href: "/code"} "source"))
       (DIV {
         "data-signals": $"{prompt: '', model: '($DEFAULT_MODEL)'}"
       }
@@ -53,6 +58,31 @@ def page [] {
         )
         (DIV {id: "output"} "")
       )
+  )
+}
+
+def code-page [] {
+  let source = open ($script_dir | path join serve.nu)
+  let highlighted = $source | .highlight nu
+  let theme_css = .highlight theme Dracula
+
+  HTML (
+    HEAD
+      (META {charset: "utf-8"})
+      (META {name: "viewport", content: "width=device-width, initial-scale=1"})
+      (TITLE "yoke - source")
+      (STYLE "
+        body { font-family: system-ui, sans-serif; max-width: 48rem; margin: 2rem auto; padding: 0 1rem; }
+        nav { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1rem; }
+        nav a { font-size: 0.875rem; color: #666; text-decoration: none; }
+        nav a:hover { color: #333; }
+        pre { padding: 1rem; border-radius: 0.5rem; overflow-x: auto; font-size: 0.8125rem; line-height: 1.6; }
+      ")
+      (STYLE $theme_css)
+  ) (
+    BODY
+      (NAV (H1 "yoke") (A {href: "/"} "back"))
+      (PRE {class: "code"} (CODE $highlighted))
   )
 }
 
@@ -84,6 +114,7 @@ def handle-sse [req: record] {
 {|req|
   dispatch $req [
     (route {path: "/"} {|req ctx| page})
+    (route {path: "/code"} {|req ctx| code-page})
     (route {path: "/sse"} {|req ctx| handle-sse $req})
     (route true {|req ctx|
       "not found" | metadata set { merge {'http.response': {status: 404}} }
