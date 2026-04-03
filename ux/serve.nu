@@ -85,7 +85,7 @@ def render-model-select [models: list, selected: string] {
 def page [] {
   let providers = available-providers
   let default_provider = $providers | get -i 0 | get -i name | default $DEFAULT_PROVIDER
-  let models = try { yoke --provider $default_provider | from json -o | get id } catch { [$DEFAULT_MODEL] }
+  let models = fetch-models $default_provider
 
   HTML (
     HEAD
@@ -138,12 +138,24 @@ def page [] {
   )
 }
 
+def fetch-models [provider: string] {
+  let topic = $"models.($provider)"
+  let cached = try { .last $topic } catch { null }
+  if $cached != null {
+    .cas $cached.hash | lines | where { $in != "" }
+  } else {
+    let models = try { yoke --provider $provider | from json -o | get id } catch { [] }
+    $models | str join "\n" | .append $topic --ttl time:21600000
+    $models
+  }
+}
+
 def handle-models [req: record] {
   let signals = $in | from datastar-signals $req
   let provider = $signals.provider? | default $DEFAULT_PROVIDER
   let filter = $signals.model_filter? | default ""
 
-  let all_models = try { yoke --provider $provider | from json -o | get id } catch { [] }
+  let all_models = fetch-models $provider
   let models = if ($filter | is-empty) {
     $all_models
   } else {
