@@ -402,9 +402,6 @@ fn normalize_model(provider: &str, raw: &serde_json::Value) -> Option<serde_json
                 let iso = chrono_from_unix(ts);
                 out.insert("created".into(), serde_json::Value::String(iso));
             }
-            if let Some(v) = raw.get("owned_by") {
-                out.insert("owned_by".into(), v.clone());
-            }
         }
         "gemini" => {
             let name = raw.get("name")?.as_str()?;
