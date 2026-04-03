@@ -69,7 +69,7 @@ def handle-sse [req: record] {
   yoke --provider anthropic --model $model --tools none $prompt
     | lines
     | each {|line|
-        let event = ($line | from json -o)
+        let event = try { $line | from json } catch { null }
         if $event == null { return }
 
         if ($event.type? == "delta" and $event.kind? == "text") {
