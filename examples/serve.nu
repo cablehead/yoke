@@ -33,29 +33,27 @@ def page [] {
   ) (
     BODY
       (NAV (H1 "yoke") (A {href: "/code"} "source"))
-      (DIV {
-        "data-signals": $"{prompt: '', model: '($DEFAULT_MODEL)'}"
-      }
-        (DIV {style: "display: flex; gap: 0.5rem; margin-bottom: 1rem;"}
-          (INPUT {
-            type: "text",
-            placeholder: "ask something...",
-            "data-bind": "prompt"
-          })
-          (BUTTON {
-            "data-on:click": "$prompt && @get('/sse')"
-          } "send")
-        )
-        (P {class: "meta"}
-          (LABEL "model: ")
-          (INPUT {
-            type: "text",
-            "data-bind": "model",
-            style: "width: 20rem; font-size: 0.75rem; padding: 0.25rem;"
-          })
-        )
-        (DIV {id: "output"} "")
+      (DIV {style: "display: flex; gap: 0.5rem; margin-bottom: 1rem;"}
+        (INPUT {
+          type: "text",
+          placeholder: "ask something...",
+          "data-bind": "prompt",
+          value: ""
+        })
+        (BUTTON {
+          "data-on:click": "$prompt && @get('/sse')"
+        } "send")
       )
+      (P {class: "meta"}
+        (LABEL "model: ")
+        (INPUT {
+          type: "text",
+          "data-bind": "model",
+          value: $DEFAULT_MODEL,
+          style: "width: 20rem; font-size: 0.75rem; padding: 0.25rem;"
+        })
+      )
+      (DIV {id: "output"} "")
   )
 }
 
