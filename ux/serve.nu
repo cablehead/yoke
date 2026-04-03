@@ -58,26 +58,23 @@ def nav-bar [...right] {
 }
 
 def render-model-select [models: list, selected: string] {
-  # Put selected model first so it's visible
-  let ordered = if ($selected != "") and ($selected in $models) {
-    [$selected] | append ($models | where { $in != $selected })
-  } else {
-    $models
-  }
   DIV {
     id: "model-select",
     style: "max-height: 12rem; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 0.75rem;"
   } {
-    $ordered | each {|m|
-      let style = if $m == $selected {
-        "padding: 0.3rem 0.5rem; cursor: pointer; border-radius: 0.25rem; background: #e8f0fe; color: #1a4b8c;"
+    $models | each {|m|
+      if $m == $selected {
+        DIV {
+          id: "model-selected",
+          style: "padding: 0.3rem 0.5rem; cursor: pointer; border-radius: 0.25rem; background: #e8f0fe; color: #1a4b8c;",
+          "data-on:click": ("$model = '" + $m + "'; @get('/models')")
+        } $m
       } else {
-        "padding: 0.3rem 0.5rem; cursor: pointer; border-radius: 0.25rem;"
+        DIV {
+          style: "padding: 0.3rem 0.5rem; cursor: pointer; border-radius: 0.25rem;",
+          "data-on:click": ("$model = '" + $m + "'; @get('/models')")
+        } $m
       }
-      DIV {
-        style: $style,
-        "data-on:click": ("$model = '" + $m + "'; @get('/models')")
-      } $m
     }
   }
 }
@@ -128,7 +125,7 @@ def page [] {
           type: "text",
           placeholder: "filter models...",
           "data-bind": "model_filter",
-          "data-on:input__debounce.200ms": "@get('/models')",
+          "data-on:input__debounce.60ms": "@get('/models')",
           value: "",
           style: "flex: 1;"
         })
@@ -172,6 +169,7 @@ def handle-models [req: record] {
     (render-model-select $models $selected
       | to datastar-patch-elements --selector "#model-select-wrapper" --mode inner)
     ({model: $selected} | to datastar-patch-signals)
+    ("document.querySelector('#model-selected')?.scrollIntoView({block:'nearest'})" | to datastar-execute-script)
   ] | to sse
 }
 
