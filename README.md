@@ -14,7 +14,8 @@ Built on [yoagent](https://github.com/yologdev/yoagent).
 - [Output](#output)
 - [Round-tripping](#round-tripping)
 - [Providers](#providers)
-- [Build](#build)
+- [Web UI](#web-ui)
+- [Install](#install)
 
 ## Quick start
 
@@ -179,6 +180,49 @@ open --raw session.jsonl | yoke --provider openai --model gpt-5.4-mini "summariz
 | anthropic | `ANTHROPIC_API_KEY` | Anthropic Messages |
 | openai | `OPENAI_API_KEY` | OpenAI Chat Completions |
 | gemini | `GEMINI_API_KEY` | Google Generative AI |
+
+## Web UI
+
+yoke includes a browser-based UI powered by
+[http-nu](https://github.com/cablehead/http-nu) and
+[Datastar](https://data-star.dev). It streams responses in real time with
+rendered markdown, syntax highlighting, and grounding sources.
+
+Requires [http-nu](https://github.com/cablehead/http-nu) (with embedded
+[cross.stream](https://cross.stream) store for run history).
+
+```nushell
+http-nu --datastar --store ./store :3001 ux/serve.nu
+```
+
+Then open http://localhost:3001.
+
+**Pages:**
+
+- `/` -- prompt input, streams response as live-updating cards
+- `/runs` -- history of past runs
+- `/run/:id` -- replay a stored run as a card stack
+- `/code` -- syntax-highlighted source of serve.nu
+
+**How it works:**
+
+Each yoke run streams JSONL through a render pipeline that produces
+[Datastar](https://data-star.dev) SSE events. The browser morphs HTML into
+place as cards complete:
+
+- **User card** -- your prompt
+- **Assistant card** -- rendered markdown, model info, token usage
+- **Tool result card** -- tool name, output
+- **Sources footer** -- grounding links from web search (Gemini)
+
+Completed cards appear immediately. The current turn streams live at the bottom
+with a blinking cursor. Runs are persisted to the cross.stream store for replay.
+
+**Run the tests:**
+
+```nushell
+http-nu eval ux/tests/test-render.nu
+```
 
 ## Install
 
