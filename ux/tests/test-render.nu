@@ -59,6 +59,18 @@ assert ($finished_with_sources.__html | str contains "macrotrends.net")
 assert ($finished_with_sources.__html | str contains "searched: population of Tokyo 2026")
 print "PASS: finished card with grounding sources"
 
+# Test finished card with Anthropic citations
+let finished_anthropic = render-finished "Hello" "claude-haiku-4-5" {input: 10, output: 20} --metadata {
+  citations: [
+    {title: "Linux Blog" url: "https://linuxblog.io/best-laptops" cited_text: "some text"}
+    {title: "Linuxano" url: "https://linuxano.com/guide" cited_text: "other text"}
+  ]
+}
+assert ($finished_anthropic.__html | str contains "sources:")
+assert ($finished_anthropic.__html | str contains "Linux Blog")
+assert ($finished_anthropic.__html | str contains "Linuxano")
+print "PASS: finished card with Anthropic citations"
+
 # Test finished card without metadata shows no sources
 let finished_no_meta = render-finished "Hello" "gemini-3-flash-preview" {input: 10, output: 20}
 assert (not ($finished_no_meta.__html | str contains "sources:"))

@@ -25,23 +25,35 @@ export def render-streaming [text: string] {
   )
 }
 
-# Render grounding sources as a list of links
+# Render sources from metadata (handles both Gemini grounding and Anthropic citations)
 def render-sources [metadata: record] {
-  let chunks = $metadata.groundingChunks? | default []
-  let queries = $metadata.webSearchQueries? | default [] | where { $in != "" }
-
-  if ($chunks | is-empty) and ($queries | is-empty) {
-    return null
-  }
-
-  let source_links = $chunks | each {|chunk|
+  # Gemini: groundingChunks with web.title/web.uri
+  let gemini_links = $metadata.groundingChunks? | default [] | each {|chunk|
     let web = $chunk.web? | default {}
     let title = $web.title? | default "source"
     let uri = $web.uri? | default ""
-    if ($uri | is-empty) { null } else {
-      A {href: $uri, target: "_blank", style: "color: #4a7bbd; text-decoration: none;"} $title
-    }
+    if ($uri | is-empty) { null } else { {title: $title, url: $uri} }
   } | compact
+
+  # Anthropic: citations with title/url
+  let anthropic_links = $metadata.citations? | default [] | each {|c|
+    let title = $c.title? | default "source"
+    let url = $c.url? | default ""
+    if ($url | is-empty) { null } else { {title: $title, url: $url} }
+  } | compact
+
+  # Deduplicate by url
+  let all_links = $gemini_links | append $anthropic_links | uniq-by url
+
+  let queries = $metadata.webSearchQueries? | default [] | where { $in != "" }
+
+  if ($all_links | is-empty) and ($queries | is-empty) {
+    return null
+  }
+
+  let source_els = $all_links | each {|link|
+    A {href: $link.url, target: "_blank", style: "color: #4a7bbd; text-decoration: none;"} $link.title
+  }
 
   let query_text = if ($queries | is-empty) { null } else {
     SPAN {style: "color: #999; font-style: italic;"} $"searched: ($queries | str join ', ')"
@@ -49,7 +61,7 @@ def render-sources [metadata: record] {
 
   DIV {style: "padding: 0.5rem 1rem; background: #f0f4f8; border-top: 1px solid #e0e0e0; font-size: 0.75rem; display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; align-items: center;"} [
     (SPAN {style: "color: #888; margin-right: 0.25rem;"} "sources:")
-    ...$source_links
+    ...$source_els
     ...( if $query_text != null { [$query_text] } else { [] } )
   ]
 }
