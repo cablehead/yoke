@@ -54,12 +54,42 @@ def render-sources [metadata: record] {
   ]
 }
 
+# Render token usage as a compact display
+def render-usage [usage: record] {
+  let dim = "color: #aaa;"
+  let val = "color: #666;"
+
+  mut parts = []
+  let input = $usage.input? | default 0
+  let output = $usage.output? | default 0
+  let thinking = $usage.thinking_tokens? | default 0
+  let cache_read = $usage.cache_read? | default 0
+
+  $parts = ($parts | append (SPAN {style: $val} $"($input)"))
+  $parts = ($parts | append (SPAN {style: $dim} " in "))
+
+  if $thinking > 0 {
+    $parts = ($parts | append (SPAN {style: $val} $"($thinking)"))
+    $parts = ($parts | append (SPAN {style: $dim} " think "))
+  }
+
+  $parts = ($parts | append (SPAN {style: $val} $"($output)"))
+  $parts = ($parts | append (SPAN {style: $dim} " out"))
+
+  if $cache_read > 0 {
+    $parts = ($parts | append (SPAN {style: $dim} " / "))
+    $parts = ($parts | append (SPAN {style: $val} $"($cache_read)"))
+    $parts = ($parts | append (SPAN {style: $dim} " cached"))
+  }
+
+  $parts
+}
+
 # Render the finished response card
 export def render-finished [
   text: string
   model: string
-  input_tokens: int
-  output_tokens: int
+  usage: record
   --metadata: record
 ] {
   let rendered = $text | .md
@@ -74,9 +104,9 @@ export def render-finished [
     DIV {style: "background: #fff; border: 1px solid #e0e0e0; border-radius: 0.5rem; overflow: hidden;"} [
       (DIV {style: "padding: 1rem;"} $rendered)
       ...( if $sources != null { [$sources] } else { [] } )
-      (DIV {style: "padding: 0.5rem 1rem; background: #f8f8f8; border-top: 1px solid #e0e0e0; font-size: 0.75rem; color: #888; display: flex; gap: 1rem;"} [
-        (SPAN $model)
-        (SPAN $"($input_tokens) in / ($output_tokens) out")
+      (DIV {style: "padding: 0.5rem 1rem; background: #f8f8f8; border-top: 1px solid #e0e0e0; font-size: 0.75rem; display: flex; justify-content: space-between; align-items: center;"} [
+        (SPAN {style: "color: #888;"} $model)
+        (SPAN ...(render-usage $usage))
       ])
     ]
   )
@@ -104,9 +134,9 @@ export def "render yoke-stream" [--model (-m): string = ""] {
       let usage = $event.usage? | default {}
       let meta = $event.metadata? | default null
       let frame = if $meta != null {
-        render-finished $text ($event.model? | default $model) ($usage.input? | default 0) ($usage.output? | default 0) --metadata $meta
+        render-finished $text ($event.model? | default $model) $usage --metadata $meta
       } else {
-        render-finished $text ($event.model? | default $model) ($usage.input? | default 0) ($usage.output? | default 0)
+        render-finished $text ($event.model? | default $model) $usage
       }
       {out: ($frame | to datastar-patch-elements), next: $acc}
     } else {

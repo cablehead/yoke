@@ -21,15 +21,24 @@ assert ($thinking_html.__html | str contains "thinking...")
 print "PASS: streaming view shows thinking for empty text"
 
 # Test finished card renders markdown with metadata
-let finished_html = render-finished "Hello **world**" "gemini-3-flash-preview" 136 347
+let finished_html = render-finished "Hello **world**" "gemini-3-flash-preview" {input: 136, output: 347}
 assert ($finished_html.__html | str contains "<strong>world</strong>")
 assert ($finished_html.__html | str contains "gemini-3-flash-preview")
-assert ($finished_html.__html | str contains "136 in / 347 out")
+assert ($finished_html.__html | str contains ">136<")
+assert ($finished_html.__html | str contains ">347<")
+assert ($finished_html.__html | str contains " in ")
+assert ($finished_html.__html | str contains " out")
 assert (not ($finished_html.__html | str contains "animation: blink"))
 print "PASS: finished card renders markdown with metadata"
 
+# Test finished card with thinking tokens
+let finished_thinking = render-finished "Hello" "gemini-3-flash-preview" {input: 71, output: 518, thinking_tokens: 589}
+assert ($finished_thinking.__html | str contains ">589<")
+assert ($finished_thinking.__html | str contains " think ")
+print "PASS: finished card shows thinking tokens"
+
 # Test finished card with grounding sources
-let finished_with_sources = render-finished "Hello" "gemini-3-flash-preview" 10 20 --metadata {
+let finished_with_sources = render-finished "Hello" "gemini-3-flash-preview" {input: 10, output: 20} --metadata {
   webSearchQueries: ["population of Tokyo 2026"]
   groundingChunks: [
     {web: {title: "wikipedia.org" uri: "https://en.wikipedia.org/wiki/Tokyo"}}
@@ -43,7 +52,7 @@ assert ($finished_with_sources.__html | str contains "searched: population of To
 print "PASS: finished card with grounding sources"
 
 # Test finished card without metadata shows no sources
-let finished_no_meta = render-finished "Hello" "gemini-3-flash-preview" 10 20
+let finished_no_meta = render-finished "Hello" "gemini-3-flash-preview" {input: 10, output: 20}
 assert (not ($finished_no_meta.__html | str contains "sources:"))
 print "PASS: finished card without metadata has no sources"
 
@@ -77,7 +86,8 @@ print "PASS: tokyo last frame has grounding sources"
 
 # Last frame should have model and usage
 assert ($last_data | str contains "gemini-3-flash-preview")
-assert ($last_data | str contains " in / ")
+assert ($last_data | str contains " in ")
+assert ($last_data | str contains " out")
 print "PASS: tokyo last frame has model and usage"
 
 print "\nAll tests passed."
