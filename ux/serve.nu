@@ -16,12 +16,16 @@ source render-gemini.nu
 const DEFAULT_PROVIDER = "gemini"
 const DEFAULT_MODEL = "gemini-3-flash-preview"
 
-const PROVIDERS = [
-  [name label];
-  [anthropic Anthropic]
-  [openai OpenAI]
-  [gemini Gemini]
+const ALL_PROVIDERS = [
+  [name label key_var];
+  [anthropic Anthropic ANTHROPIC_API_KEY]
+  [openai OpenAI OPENAI_API_KEY]
+  [gemini Gemini GEMINI_API_KEY]
 ]
+
+def available-providers [] {
+  $ALL_PROVIDERS | where { $in.key_var in $env }
+}
 
 def styles [] {
   let theme_css = .highlight theme Dracula
@@ -54,11 +58,17 @@ def nav-bar [...right] {
 }
 
 def render-model-select [models: list, selected: string] {
+  # Put selected model first so it's visible
+  let ordered = if ($selected != "") and ($selected in $models) {
+    [$selected] | append ($models | where { $in != $selected })
+  } else {
+    $models
+  }
   DIV {
     id: "model-select",
     style: "max-height: 12rem; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 0.75rem;"
   } {
-    $models | each {|m|
+    $ordered | each {|m|
       let style = if $m == $selected {
         "padding: 0.3rem 0.5rem; cursor: pointer; border-radius: 0.25rem; background: #e8f0fe; color: #1a4b8c;"
       } else {
@@ -73,7 +83,9 @@ def render-model-select [models: list, selected: string] {
 }
 
 def page [] {
-  let models = try { yoke --provider $DEFAULT_PROVIDER | from json -o | get id } catch { [$DEFAULT_MODEL] }
+  let providers = available-providers
+  let default_provider = $providers | get -i 0 | get -i name | default $DEFAULT_PROVIDER
+  let models = try { yoke --provider $default_provider | from json -o | get id } catch { [$DEFAULT_MODEL] }
 
   HTML (
     HEAD
@@ -84,7 +96,7 @@ def page [] {
       ...(styles)
   ) (
     BODY {
-      "data-signals": ("{ model: '" + $DEFAULT_MODEL + "' }")
+      "data-signals": ("{ model: '" + ($models | get -i 0 | default $DEFAULT_MODEL) + "' }")
     }
       (nav-bar (A {href: "/runs"} "history") (A {href: "/code"} "source"))
       (DIV {style: "display: flex; gap: 0.5rem; margin-bottom: 0.75rem;"}
@@ -104,8 +116,8 @@ def page [] {
           "data-bind": "provider",
           "data-on:change": "@get('/models')"
         } {
-          $PROVIDERS | each {|p|
-            if $p.name == $DEFAULT_PROVIDER {
+          $providers | each {|p|
+            if $p.name == $default_provider {
               OPTION {value: $p.name, selected: true} $p.label
             } else {
               OPTION {value: $p.name} $p.label
@@ -121,7 +133,7 @@ def page [] {
           style: "flex: 1;"
         })
       )
-      (DIV {id: "model-select-wrapper", style: "margin-bottom: 0.75rem;"} (render-model-select $models $DEFAULT_MODEL))
+      (DIV {id: "model-select-wrapper", style: "margin-bottom: 0.75rem;"} (render-model-select $models ($models | get -i 0 | default $DEFAULT_MODEL)))
       (DIV {id: "output"} "")
   )
 }
