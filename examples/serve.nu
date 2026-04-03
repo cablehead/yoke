@@ -23,7 +23,7 @@ def page [] {
       (STYLE "
         body { font-family: system-ui, sans-serif; max-width: 48rem; margin: 2rem auto; padding: 0 1rem; }
         #output { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.875rem; line-height: 1.5; background: #f5f5f5; padding: 1rem; border-radius: 0.5rem; min-height: 4rem; }
-        form { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+        .prompt-row { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
         input[type=text] { flex: 1; padding: 0.5rem; font-size: 1rem; border: 1px solid #ccc; border-radius: 0.25rem; }
         button { padding: 0.5rem 1rem; font-size: 1rem; cursor: pointer; border-radius: 0.25rem; border: 1px solid #ccc; }
         .meta { color: #888; font-size: 0.75rem; margin-top: 0.5rem; }
@@ -37,14 +37,13 @@ def page [] {
       (DIV {
         "data-signals": $"{prompt: '', model: '($DEFAULT_MODEL)'}"
       }
-        (FORM {"data-on:submit.prevent": "void 0"}
+        (DIV {class: "prompt-row"}
           (INPUT {
             type: "text",
             placeholder: "ask something...",
             "data-bind": "prompt"
           })
           (BUTTON {
-            type: "button",
             "data-on:click": "$prompt && @get('/sse')"
           } "send")
         )
