@@ -2,7 +2,19 @@
 
 Headless agent harness. JSONL in, JSONL out.
 
+Context in, agent loop, JSONL out, done. No TUI, no REPL, no persistence.
+
 Built on [yoagent](https://github.com/yologdev/yoagent).
+
+- [Quick start](#quick-start)
+- [Discovery](#discovery)
+- [Tools](#tools)
+- [Web search](#web-search)
+- [Input](#input)
+- [Output](#output)
+- [Round-tripping](#round-tripping)
+- [Providers](#providers)
+- [Build](#build)
 
 ## Quick start
 
@@ -12,74 +24,120 @@ yoke --provider anthropic --model claude-sonnet-4-20250514 "what files are here?
 
 ## Discovery
 
-Run with no args to list providers:
+List providers and where to get API keys:
 
 ```nushell
-yoke
-# available providers:
-#
-#   anthropic
-#     env: ANTHROPIC_API_KEY
-#     key: https://console.anthropic.com/settings/keys
-#
-#   openai
-#     env: OPENAI_API_KEY
-#     key: https://platform.openai.com/api-keys
-#
-#   gemini
-#     env: GEMINI_API_KEY
-#     key: https://aistudio.google.com/apikey
+$ yoke
+available providers:
+
+  anthropic
+    env: ANTHROPIC_API_KEY
+    key: https://console.anthropic.com/settings/keys
+
+  openai
+    env: OPENAI_API_KEY
+    key: https://platform.openai.com/api-keys
+
+  gemini
+    env: GEMINI_API_KEY
+    key: https://aistudio.google.com/apikey
 ```
 
-Run with just `--provider` to list available models:
+List models for a provider:
 
 ```nushell
-yoke --provider anthropic
-# claude-3-5-haiku-20241022
-# claude-3-5-sonnet-20241022
-# claude-sonnet-4-20250514
-# ...
+$ yoke --provider anthropic
+claude-3-5-haiku-20241022
+claude-3-5-sonnet-20241022
+claude-sonnet-4-20250514
+...
 ```
 
-## Providers
+## Tools
 
-| Provider | Env var | API |
-|----------|---------|-----|
-| anthropic | `ANTHROPIC_API_KEY` | Anthropic Messages |
-| openai | `OPENAI_API_KEY` | OpenAI Chat Completions |
-| gemini | `GEMINI_API_KEY` | Google Generative AI |
+Control which tools the agent has access to with `--tools`:
+
+```nushell
+# all tools including web search (default)
+yoke --provider anthropic --model claude-sonnet-4-20250514 --tools all "find recent rust news"
+
+# code tools only (bash, read_file, write_file, edit_file, list_files, search)
+yoke --provider anthropic --model claude-sonnet-4-20250514 --tools code "refactor main.rs"
+
+# web search only
+yoke --provider openai --model gpt-5-search-api --tools web_search "latest news on Toronto"
+
+# no tools
+yoke --provider anthropic --model claude-sonnet-4-20250514 --tools none "explain ownership in rust"
+
+# pick individual tools
+yoke --provider anthropic --model claude-sonnet-4-20250514 --tools bash,read_file "check the logs"
+
+# combine groups
+yoke --provider anthropic --model claude-sonnet-4-20250514 --tools code,web_search "find and fix the bug"
+```
+
+Available tools:
+
+| Tool | Description |
+|------|-------------|
+| `bash` | Shell command execution |
+| `read_file` | Read files with line numbers |
+| `write_file` | Create or overwrite files |
+| `edit_file` | Search/replace editing |
+| `list_files` | Directory listing |
+| `search` | Grep/ripgrep pattern search |
+| `web_search` | Provider-side web search |
+
+## Web search
+
+Web search is a provider-side capability. Each provider handles it differently:
+
+| Provider | How it works | With function tools? |
+|----------|-------------|---------------------|
+| Anthropic | Server tool, model invokes mid-turn | Yes |
+| OpenAI | Dedicated search models (e.g. `gpt-5-search-api`) | No -- separate model family |
+| Gemini | Google Search grounding tool | Yes |
+
+For OpenAI, use `--tools web_search` with a search model:
+
+```nushell
+yoke --provider openai --model gpt-5-search-api --tools web_search "population of toronto 2026"
+```
+
+For Anthropic and Gemini, web search works alongside code tools:
+
+```nushell
+yoke --provider anthropic --model claude-sonnet-4-20250514 "what is the latest rust release?"
+```
 
 ## Input
 
 JSONL on stdin. Lines with `role` are context messages. Everything else is
-silently skipped (observation events, blank lines, etc).
-
-Simple form -- string content for user and system messages:
+silently skipped.
 
 ```nushell
+# simple prompt
 {"role":"user","content":"list files"} | to json -r | yoke --provider anthropic --model claude-sonnet-4-20250514
-```
 
-Multiple messages:
-
-```nushell
+# system prompt + user message
 [
   ({"role":"system","content":"You are a helpful assistant."} | to json -r)
   ({"role":"user","content":"list files in the current directory"} | to json -r)
 ] | str join "\n" | yoke --provider anthropic --model claude-sonnet-4-20250514
 ```
 
-Structured form (round-tripped from a previous run's output) also works.
+Structured content from a previous run's output also round-trips as input.
 
 ## Output
 
-JSONL on stdout. Two kinds of lines, distinguished by shape:
+JSONL on stdout. Two kinds of lines:
 
-**Context lines** have `role`. These are the conversation: user messages,
-assistant responses, tool results. They round-trip as input.
+**Context lines** have `role`. User messages, assistant responses, tool
+results. These round-trip as input.
 
-**Observation lines** have `type`. Streaming deltas, tool execution events,
-lifecycle markers. Skipped on input.
+**Observation lines** have `type`. Streaming deltas, tool execution, lifecycle.
+Skipped on input.
 
 ```jsonl
 {"type":"agent_start"}
@@ -96,28 +154,31 @@ lifecycle markers. Skipped on input.
 
 ## Round-tripping
 
-Save a run, then continue the conversation:
+Save a run:
 
 ```nushell
 yoke --provider anthropic --model claude-sonnet-4-20250514 "what files are here?" | tee { save -f session.jsonl }
 ```
 
-Continue from saved context:
+Continue the conversation:
 
 ```nushell
 open --raw session.jsonl | yoke --provider anthropic --model claude-sonnet-4-20250514 "now count them"
 ```
 
-Pipe the same context to a different model:
+Replay context against a different model:
 
 ```nushell
-open --raw session.jsonl | yoke --provider openai --model gpt-4o "summarize what happened"
+open --raw session.jsonl | yoke --provider openai --model gpt-5.4-mini "summarize what happened"
 ```
 
-## Tools
+## Providers
 
-All yoagent built-in tools: bash, read_file, write_file, edit_file,
-list_files, search.
+| Provider | Env var | API |
+|----------|---------|-----|
+| anthropic | `ANTHROPIC_API_KEY` | Anthropic Messages |
+| openai | `OPENAI_API_KEY` | OpenAI Chat Completions |
+| gemini | `GEMINI_API_KEY` | Google Generative AI |
 
 ## Build
 
