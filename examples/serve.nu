@@ -87,7 +87,7 @@ def code-page [] {
 }
 
 def handle-sse [req: record] {
-  let signals = from datastar-signals $req
+  let signals = $in | from datastar-signals $req
   let prompt = $signals.prompt? | default ""
   let model = $signals.model? | default $DEFAULT_MODEL
 
@@ -95,8 +95,6 @@ def handle-sse [req: record] {
     {data: "no prompt"} | to sse
     return
   }
-
-  let _ = $in
   yoke --provider anthropic --model $model --tools none $prompt
     | from json -o
     | each {|event|
