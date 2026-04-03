@@ -191,33 +191,29 @@ export def render-run [lines: list] {
 
 # Process a stream of yoke JSONL lines into Datastar patch-elements records.
 # Uses `generate` for streaming accumulation.
+# During streaming: shows live text with cursor.
+# On agent_end: replaces with full card stack of all messages.
 export def "render yoke-stream" [--model (-m): string = ""] {
-  generate {|line, acc = ""|
+  generate {|line, state = {acc: "", messages: []}|
     let event = try { $line | from json } catch { null }
     if $event == null {
-      {next: $acc}
+      {next: $state}
     } else if ($event.type? == "delta" and $event.kind? == "text") {
-      let acc = $acc + $event.delta
-      {out: (render-streaming $acc | to datastar-patch-elements), next: $acc}
+      let acc = $state.acc + $event.delta
+      {out: (render-streaming $acc | to datastar-patch-elements), next: {acc: $acc, messages: $state.messages}}
     } else if ($event.type? == "agent_start") {
-      {out: (render-streaming "" | to datastar-patch-elements), next: ""}
-    } else if ($event.role? == "assistant") {
-      let text = $event.content?
-        | default []
-        | where type? == "text"
-        | get text?
-        | compact
-        | str join ""
-      let usage = $event.usage? | default {}
-      let meta = $event.metadata? | default null
-      let frame = if $meta != null {
-        render-finished $text ($event.model? | default $model) $usage --metadata $meta
-      } else {
-        render-finished $text ($event.model? | default $model) $usage
-      }
-      {out: ($frame | to datastar-patch-elements), next: $acc}
+      {out: (render-streaming "" | to datastar-patch-elements), next: {acc: "", messages: []}}
+    } else if ($event.role? != null) {
+      # Collect all context messages
+      let messages = $state.messages | append $event
+      {next: {acc: $state.acc, messages: $messages}}
+    } else if ($event.type? == "agent_end") {
+      # Render the full conversation as a card stack
+      let cards = render-run $state.messages
+      let frame = DIV {id: "output"} ...$cards
+      {out: ($frame | to datastar-patch-elements), next: $state}
     } else {
-      {next: $acc}
+      {next: $state}
     }
   }
 }
