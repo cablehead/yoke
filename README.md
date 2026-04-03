@@ -6,6 +6,7 @@ Context in, agent loop, JSONL out, done. No TUI, no REPL, no persistence.
 
 Built on [yoagent](https://github.com/yologdev/yoagent).
 
+- [Install](#install)
 - [Quick start](#quick-start)
 - [Discovery](#discovery)
 - [Tools](#tools)
@@ -15,7 +16,34 @@ Built on [yoagent](https://github.com/yologdev/yoagent).
 - [Round-tripping](#round-tripping)
 - [Providers](#providers)
 - [Web UI](#web-ui)
-- [Install](#install)
+
+## Install
+
+### [eget](https://github.com/zyedidia/eget)
+
+```nushell
+eget cablehead/yoke
+```
+
+### Homebrew (macOS)
+
+```nushell
+brew install cablehead/tap/yoke
+```
+
+### cargo
+
+```nushell
+cargo install --git https://github.com/cablehead/yoke
+```
+
+### Build from source
+
+```nushell
+git clone https://github.com/cablehead/yoke
+cd yoke
+cargo build --release
+```
 
 ## Quick start
 
@@ -222,18 +250,4 @@ with a blinking cursor. Runs are persisted to the cross.stream store for replay.
 
 ```nushell
 http-nu eval ux/tests/test-render.nu
-```
-
-## Install
-
-```nushell
-cargo install --git https://github.com/cablehead/yoke
-```
-
-Or build from source:
-
-```nushell
-git clone https://github.com/cablehead/yoke
-cd yoke
-cargo build --release
 ```
