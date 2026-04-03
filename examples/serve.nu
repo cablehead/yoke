@@ -11,34 +11,9 @@ use http-nu/router *
 use http-nu/datastar *
 use http-nu/html *
 
+source render-gemini.nu
+
 const DEFAULT_MODEL = "gemini-3-flash-preview"
-
-def render-streaming [text: string] {
-  let rendered = if ($text | is-empty) {
-    SPAN {style: "color: #999;"} "thinking..."
-  } else {
-    $text | .md
-  }
-  DIV {id: "output"} (
-    DIV {style: "padding: 1rem; background: #f5f5f5; border-radius: 0.5rem; min-height: 4rem;"} [
-      $rendered
-      (SPAN {style: "display: inline-block; width: 0.5rem; height: 1rem; background: #333; animation: blink 1s step-end infinite;"} "")
-    ]
-  )
-}
-
-def render-finished [text: string, model: string, input_tokens: int, output_tokens: int] {
-  let rendered = $text | .md
-  DIV {id: "output"} (
-    DIV {style: "background: #fff; border: 1px solid #e0e0e0; border-radius: 0.5rem; overflow: hidden;"} [
-      (DIV {style: "padding: 1rem;"} $rendered)
-      (DIV {style: "padding: 0.5rem 1rem; background: #f8f8f8; border-top: 1px solid #e0e0e0; font-size: 0.75rem; color: #888; display: flex; gap: 1rem;"} [
-        (SPAN $model)
-        (SPAN $"($input_tokens) in / ($output_tokens) out")
-      ])
-    ]
-  )
-}
 
 def page [] {
   let theme_css = .highlight theme Dracula
@@ -123,32 +98,9 @@ def handle-sse [req: record] {
     return
   }
 
-  yoke --provider gemini --model $model --tools none $prompt
+  yoke --provider gemini --model $model --tools web_search $prompt
     | lines
-    | generate {|line, acc = ""|
-        let event = try { $line | from json } catch { null }
-        if $event == null {
-          {next: $acc}
-        } else if ($event.type? == "delta" and $event.kind? == "text") {
-          let acc = $acc + $event.delta
-          {out: (render-streaming $acc | to datastar-patch-elements), next: $acc}
-        } else if ($event.type? == "agent_start") {
-          {out: (render-streaming "" | to datastar-patch-elements), next: ""}
-        } else if ($event.role? == "assistant") {
-          let text = $event.content?
-            | default []
-            | where type? == "text"
-            | get text?
-            | compact
-            | str join ""
-          let usage = $event.usage? | default {}
-          let frame = render-finished $text ($event.model? | default $model) ($usage.input? | default 0) ($usage.output? | default 0)
-            | to datastar-patch-elements
-          {out: $frame, next: $acc}
-        } else {
-          {next: $acc}
-        }
-      }
+    | render yoke-stream -m $model
     | to sse
 }
 
