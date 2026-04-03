@@ -83,7 +83,9 @@ def page [] {
       (SCRIPT-DATASTAR)
       ...(styles)
   ) (
-    BODY
+    BODY {
+      "data-signals": ("{ model: '" + $DEFAULT_MODEL + "' }")
+    }
       (nav-bar (A {href: "/runs"} "history") (A {href: "/code"} "source"))
       (DIV {style: "display: flex; gap: 0.5rem; margin-bottom: 0.75rem;"}
         (INPUT {
@@ -135,7 +137,12 @@ def handle-models [req: record] {
   } else {
     $all_models | where { $in | str contains -i $filter }
   }
-  let selected = $models | get -i 0 | default ""
+  let current = $signals.model? | default ""
+  let selected = if ($current != "") and ($current in $models) {
+    $current
+  } else {
+    $models | get -i 0 | default ""
+  }
 
   [
     (render-model-select $models $selected
