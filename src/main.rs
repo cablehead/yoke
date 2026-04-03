@@ -25,9 +25,8 @@ struct Cli {
 
     /// Tools to enable (comma-separated). Groups: all, code, web_search, none.
     /// Individual: bash, read_file, write_file, edit_file, list_files, search, web_search.
-    /// Default: all
-    #[arg(long, default_value = "all")]
-    tools: String,
+    #[arg(long)]
+    tools: Option<String>,
 
     /// Optional trailing prompt appended as a final user message
     #[arg()]
@@ -484,7 +483,10 @@ async fn main() {
     agent = agent
         .with_model(&model)
         .with_api_key(api_key)
-        .with_tools(build_tools(&cli.tools))
+        .with_tools(match cli.tools.as_deref() {
+            Some(spec) => build_tools(spec),
+            None => Vec::new(),
+        })
         .on_error(|e| eprintln!("error: {}", e));
 
     if !system.is_empty() {
