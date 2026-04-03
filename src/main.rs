@@ -4,6 +4,8 @@ use clap::Parser;
 use serde::Serialize;
 use tokio::sync::mpsc;
 
+mod nu_tool;
+
 use yoagent::provider::{AnthropicProvider, GoogleProvider, ModelConfig, OpenAiCompatProvider};
 use yoagent::tools::{
     default_tools, BashTool, EditFileTool, ListFilesTool, ReadFileTool, SearchTool, WebSearchTool,
@@ -24,7 +26,7 @@ struct Cli {
     model: Option<String>,
 
     /// Tools to enable (comma-separated). Groups: all, code, web_search, none.
-    /// Individual: bash, read_file, write_file, edit_file, list_files, search, web_search.
+    /// Individual: bash, nu, read_file, write_file, edit_file, list_files, search, web_search.
     #[arg(long)]
     tools: Option<String>,
 
@@ -236,6 +238,7 @@ fn build_tools(spec: &str) -> Vec<Box<dyn AgentTool>> {
             "all" => {
                 tools = default_tools();
                 tools.push(Box::new(WebSearchTool));
+                tools.push(Box::new(nu_tool::NuTool));
                 return tools;
             }
             "none" => return Vec::new(),
@@ -249,6 +252,7 @@ fn build_tools(spec: &str) -> Vec<Box<dyn AgentTool>> {
             "list_files" => tools.push(Box::new(ListFilesTool::default())),
             "search" => tools.push(Box::new(SearchTool::default())),
             "web_search" => tools.push(Box::new(WebSearchTool)),
+            "nu" => tools.push(Box::new(nu_tool::NuTool)),
             other => {
                 eprintln!("unknown tool: {}", other);
                 std::process::exit(1);

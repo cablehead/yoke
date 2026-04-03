@@ -99,6 +99,9 @@ yoke --provider openai --model gpt-5-search-api --tools web_search "latest news 
 # no tools
 yoke --provider anthropic --model claude-sonnet-4-20250514 --tools none "explain ownership in rust"
 
+# nushell instead of bash
+yoke --provider anthropic --model claude-sonnet-4-20250514 --tools nu,read_file "check the logs"
+
 # pick individual tools
 yoke --provider anthropic --model claude-sonnet-4-20250514 --tools bash,read_file "check the logs"
 
@@ -111,6 +114,7 @@ Available tools:
 | Tool | Description |
 |------|-------------|
 | `bash` | Shell command execution |
+| `nu` | Nushell script execution (embedded engine) |
 | `read_file` | Read files with line numbers |
 | `write_file` | Create or overwrite files |
 | `edit_file` | Search/replace editing |
