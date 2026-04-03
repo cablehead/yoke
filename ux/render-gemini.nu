@@ -189,28 +189,79 @@ export def render-run [lines: list] {
   } | compact
 }
 
+# Render the full state: completed cards + streaming placeholder at bottom
+def render-frame [cards: list, streaming_text: string] {
+  let streaming = render-streaming-card $streaming_text
+  DIV {id: "output"} [...$cards $streaming]
+}
+
+# Streaming card without the #output wrapper (for embedding in the stack)
+def render-streaming-card [text: string] {
+  let rendered = if ($text | is-empty) {
+    SPAN {style: "color: #999;"} "thinking..."
+  } else {
+    $text | .md
+  }
+  DIV {style: "padding: 1rem; background: #f5f5f5; border-radius: 0.5rem; min-height: 4rem; margin-bottom: 0.75rem;"} [
+    $rendered
+    (SPAN {style: "display: inline-block; width: 0.5rem; height: 1rem; background: #333; animation: blink 1s step-end infinite;"} "")
+  ]
+}
+
 # Process a stream of yoke JSONL lines into Datastar patch-elements records.
-# Uses `generate` for streaming accumulation.
-# During streaming: shows live text with cursor.
-# On agent_end: replaces with full card stack of all messages.
+# Renders completed cards immediately, with a streaming placeholder at the bottom.
 export def "render yoke-stream" [--model (-m): string = ""] {
-  generate {|line, state = {acc: "", messages: []}|
+  generate {|line, state = {acc: "", cards: [], messages: []}|
     let event = try { $line | from json } catch { null }
     if $event == null {
       {next: $state}
     } else if ($event.type? == "delta" and $event.kind? == "text") {
       let acc = $state.acc + $event.delta
-      {out: (render-streaming $acc | to datastar-patch-elements), next: {acc: $acc, messages: $state.messages}}
+      let frame = render-frame $state.cards $acc
+      {out: ($frame | to datastar-patch-elements), next: ($state | merge {acc: $acc})}
     } else if ($event.type? == "agent_start") {
-      {out: (render-streaming "" | to datastar-patch-elements), next: {acc: "", messages: []}}
-    } else if ($event.role? != null) {
-      # Collect all context messages
+      let frame = render-frame [] ""
+      {out: ($frame | to datastar-patch-elements), next: {acc: "", cards: [], messages: []}}
+    } else if ($event.role? == "user") {
+      # User message: render card immediately
+      let text = $event.content?
+        | default []
+        | where { $in.type? == "text" }
+        | get text?
+        | compact
+        | str join ""
+      let cards = $state.cards | append (render-user $text)
       let messages = $state.messages | append $event
-      {next: {acc: $state.acc, messages: $messages}}
+      let frame = render-frame $cards ""
+      {out: ($frame | to datastar-patch-elements), next: ($state | merge {acc: "", cards: $cards, messages: $messages})}
+    } else if ($event.role? == "toolResult") {
+      # Tool result: render card immediately
+      let tool_name = $event.toolName? | default "tool"
+      let content = $event.content?
+        | default []
+        | where { $in.type? == "text" }
+        | get text?
+        | compact
+        | str join "\n"
+      let is_error = $event.isError? | default false
+      let card = if $is_error {
+        render-tool-result $tool_name $content --is-error
+      } else {
+        render-tool-result $tool_name $content
+      }
+      let cards = $state.cards | append $card
+      let messages = $state.messages | append $event
+      let frame = render-frame $cards ""
+      {out: ($frame | to datastar-patch-elements), next: ($state | merge {acc: "", cards: $cards, messages: $messages})}
+    } else if ($event.role? == "assistant") {
+      # Assistant message: render as completed card, reset streaming text
+      let messages = $state.messages | append $event
+      let cards = $state.cards | append (render-assistant $event)
+      {next: ($state | merge {acc: "", cards: $cards, messages: $messages})}
     } else if ($event.type? == "agent_end") {
-      # Render the full conversation as a card stack
-      let cards = render-run $state.messages
-      let frame = DIV {id: "output"} ...$cards
+      # Final frame: just the completed cards, no streaming placeholder
+      let final_cards = render-run $state.messages
+      let frame = DIV {id: "output"} ...$final_cards
       {out: ($frame | to datastar-patch-elements), next: $state}
     } else {
       {next: $state}
