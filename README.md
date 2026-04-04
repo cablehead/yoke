@@ -255,3 +255,15 @@ with a blinking cursor. Runs are persisted to the cross.stream store for replay.
 ```nushell
 http-nu eval ux/tests/test-render.nu
 ```
+
+## Tool eval
+
+`tests/tools/` contains eval cases for iterating on builtin tool descriptions
+and behavior. Each case is a markdown file with a prompt and evaluation
+criteria. `perform.nu` runs the case through yoke and checks the output.
+
+```nushell
+cd tests/tools/nu
+$env.GEMINI_API_KEY = "your-key-here"
+nu perform.nu case1.md
+```

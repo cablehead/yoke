@@ -40,7 +40,7 @@ impl AgentTool for NuTool {
     }
 
     fn description(&self) -> &str {
-        "Execute a Nushell script and return the output. Nushell provides structured data pipelines, built-in support for JSON/CSV/YAML, and rich data manipulation commands."
+        "Execute a Nushell script. Output is automatically converted to nuon -- do not add '| to nuon' or '| to json'. Pass structured data via 'input' (JSON) to avoid quoting issues -- it becomes $in in the pipeline.\n\nExamples:\n  {command: \"$in | sort-by price -r\", input: [{name: \"Widget A\", price: 25.50}, {name: \"Gadget\", price: 15}]}\n  {command: \"seq 1 10 | each { |n| $n * $n }\"}"
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -49,7 +49,10 @@ impl AgentTool for NuTool {
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": "The Nushell script to execute"
+                    "description": "The Nushell pipeline to execute. The result of the last expression is returned."
+                },
+                "input": {
+                    "description": "Optional JSON data piped as $in to the command. Use this for structured data instead of embedding literals in the command string."
                 }
             },
             "required": ["command"]
@@ -66,14 +69,30 @@ impl AgentTool for NuTool {
             .ok_or_else(|| ToolError::InvalidArgs("missing 'command' parameter".into()))?
             .to_string();
 
+        let input_json =
+            if params.get("input").is_some_and(|v| !v.is_null()) {
+                Some(serde_json::to_string(&params["input"]).map_err(|e| {
+                    ToolError::InvalidArgs(format!("failed to serialize input: {e}"))
+                })?)
+            } else {
+                None
+            };
+
         let cancel = ctx.cancel;
 
         let handle = tokio::task::spawn_blocking(move || {
             let base = engine_state();
             let mut engine_state = base.clone();
 
+            let script = match &input_json {
+                Some(json) => {
+                    format!("r#'{json}'# | from json | {command} | to nuon")
+                }
+                None => format!("{command} | to nuon"),
+            };
+
             let mut working_set = StateWorkingSet::new(&engine_state);
-            let block = parse(&mut working_set, None, command.as_bytes(), false);
+            let block = parse(&mut working_set, None, script.as_bytes(), false);
 
             if let Some(err) = working_set.parse_errors.first() {
                 return Err(format!("Parse error: {:?}", err));
