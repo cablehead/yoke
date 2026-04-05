@@ -86,9 +86,8 @@ gh run watch <run-id> --exit-status
 After homebrew formula is updated, **PAUSE** and ask a macOS user to test:
 
 ```bash
-brew uninstall yoke
 brew install cablehead/tap/yoke
-yoke --help
+yoke --version
 ```
 
 **STOP HERE if verification fails.**
