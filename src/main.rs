@@ -554,14 +554,27 @@ async fn main() {
         }
     }
 
+    let system_prompt = agent.system_prompt.clone();
     let (tx, mut rx) = mpsc::unbounded_channel();
 
     let printer = tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
+            if let AgentEvent::AgentStart = &event {
+                handle_event(&event);
+                if !system_prompt.is_empty() {
+                    let system_msg = serde_json::json!({
+                        "role": "system",
+                        "content": system_prompt,
+                    });
+                    if let Ok(json) = serde_json::to_string(&system_msg) {
+                        write_line(&json);
+                    }
+                }
+                continue;
+            }
             handle_event(&event);
         }
     });
-
     agent.prompt_messages_with_sender(messages, tx).await;
     agent.finish().await;
     let _ = printer.await;
