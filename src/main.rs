@@ -7,6 +7,7 @@ use tokio::sync::mpsc;
 mod nu_tool;
 
 use yoagent::provider::{AnthropicProvider, GoogleProvider, ModelConfig, OpenAiCompatProvider};
+use yoagent::skills::SkillSet;
 use yoagent::tools::{
     default_tools, BashTool, EditFileTool, ListFilesTool, ReadFileTool, SearchTool, WebSearchTool,
     WriteFileTool,
@@ -33,6 +34,11 @@ struct Cli {
     /// Individual: bash, nu, read_file, write_file, edit_file, list_files, search, web_search.
     #[arg(long)]
     tools: Option<String>,
+
+    /// Skill directories to load (comma-separated paths).
+    /// Each directory is scanned for <name>/SKILL.md subdirectories.
+    #[arg(long)]
+    skills: Option<String>,
 
     /// Optional trailing prompt appended as a final user message
     #[arg()]
@@ -531,6 +537,21 @@ async fn main() {
 
     if !system.is_empty() {
         agent = agent.with_system_prompt(system);
+    }
+
+    if let Some(skills_spec) = cli.skills {
+        let dirs: Vec<&str> = skills_spec.split(',').map(|s| s.trim()).collect();
+        match SkillSet::load(&dirs) {
+            Ok(skills) => {
+                if !skills.is_empty() {
+                    agent = agent.with_skills(skills);
+                }
+            }
+            Err(e) => {
+                eprintln!("error loading skills: {}", e);
+                std::process::exit(1);
+            }
+        }
     }
 
     let (tx, mut rx) = mpsc::unbounded_channel();
