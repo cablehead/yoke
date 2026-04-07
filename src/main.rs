@@ -17,9 +17,13 @@ use yoagent::Agent;
 #[derive(Parser)]
 #[command(about = "Headless agent harness. JSONL in, JSONL out.", version)]
 struct Cli {
-    /// Provider: anthropic, openai, gemini
+    /// Provider: anthropic, openai, gemini, ollama
     #[arg(long)]
     provider: Option<String>,
+
+    /// Base URL for local/custom providers (default for ollama: http://localhost:11434)
+    #[arg(long)]
+    base_url: Option<String>,
 
     /// Model identifier (e.g. claude-sonnet-4-20250514)
     #[arg(long)]
@@ -317,6 +321,10 @@ fn list_providers() {
         write_line(&format!("    key: {}", config.dashboard));
         write_line("");
     }
+    write_line("  ollama");
+    write_line("    local, no API key required");
+    write_line("    default: http://localhost:11434");
+    write_line("");
 }
 
 fn get_api_key(config: &ProviderConfig) -> String {
@@ -441,6 +449,54 @@ fn normalize_model(provider: &str, raw: &serde_json::Value) -> Option<serde_json
     Some(serde_json::Value::Object(out))
 }
 
+async fn list_ollama_models(base_url: &str) {
+    let url = format!("{}/api/tags", base_url);
+    let client = reqwest::Client::new();
+
+    let resp = match client.get(&url).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("error fetching models from {}: {}", url, e);
+            std::process::exit(1);
+        }
+    };
+
+    let body: serde_json::Value = match resp.json().await {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("error parsing response: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let models = match body["models"].as_array() {
+        Some(l) => l,
+        None => {
+            eprintln!("unexpected response: {}", body);
+            std::process::exit(1);
+        }
+    };
+
+    for m in models {
+        let mut out = serde_json::Map::new();
+        if let Some(name) = m.get("name").and_then(|v| v.as_str()) {
+            out.insert("id".into(), serde_json::Value::String(name.to_string()));
+        }
+        if let Some(size) = m.get("size") {
+            out.insert("size".into(), size.clone());
+        }
+        if let Some(modified) = m.get("modified_at").and_then(|v| v.as_str()) {
+            out.insert(
+                "created".into(),
+                serde_json::Value::String(modified.to_string()),
+            );
+        }
+        if let Ok(json) = serde_json::to_string(&serde_json::Value::Object(out)) {
+            write_line(&json);
+        }
+    }
+}
+
 // -- Main --------------------------------------------------------------------
 
 #[tokio::main]
@@ -456,15 +512,29 @@ async fn main() {
         }
     };
 
-    let prov = provider_config(&provider);
-    let api_key = get_api_key(prov);
+    let is_ollama = provider == "ollama";
+    let ollama_base = cli
+        .base_url
+        .unwrap_or_else(|| "http://localhost:11434".to_string());
 
-    // No model: list available models and exit
-    let model = match cli.model {
-        Some(m) => m,
-        None => {
-            list_models(&provider, prov, &api_key).await;
-            return;
+    let (api_key, model) = if is_ollama {
+        // No model: list available models from Ollama and exit
+        match cli.model {
+            Some(m) => (String::new(), m),
+            None => {
+                list_ollama_models(&ollama_base).await;
+                return;
+            }
+        }
+    } else {
+        let prov = provider_config(&provider);
+        let key = get_api_key(prov);
+        match cli.model {
+            Some(m) => (key, m),
+            None => {
+                list_models(&provider, prov, &key).await;
+                return;
+            }
         }
     };
 
@@ -490,6 +560,10 @@ async fn main() {
         }
         "gemini" => {
             Agent::new(GoogleProvider).with_model_config(ModelConfig::google(&model, &model))
+        }
+        "ollama" => {
+            let base = format!("{}/v1", ollama_base);
+            Agent::new(OpenAiCompatProvider).with_model_config(ModelConfig::local(&base, &model))
         }
         _ => unreachable!(),
     };
