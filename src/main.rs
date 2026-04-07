@@ -334,17 +334,17 @@ fn get_api_key(config: &ProviderConfig) -> String {
     })
 }
 
-async fn list_models(provider: &str, config: &ProviderConfig, api_key: &str) {
+async fn list_models(provider: &str, models_url: &str, api_key: &str) {
     let client = reqwest::Client::new();
 
     let req = match provider {
         "anthropic" => client
-            .get(config.models_url)
+            .get(models_url)
             .header("x-api-key", api_key)
             .header("anthropic-version", "2023-06-01"),
-        "gemini" => client.get(format!("{}?key={}", config.models_url, api_key)),
+        "gemini" => client.get(format!("{}?key={}", models_url, api_key)),
         _ => client
-            .get(config.models_url)
+            .get(models_url)
             .header("authorization", format!("Bearer {}", api_key)),
     };
 
@@ -417,7 +417,7 @@ fn normalize_model(provider: &str, raw: &serde_json::Value) -> Option<serde_json
                 out.insert("capabilities".into(), caps.clone());
             }
         }
-        "openai" => {
+        "openai" | "ollama" => {
             out.insert("id".into(), raw.get("id")?.clone());
             if let Some(ts) = raw.get("created").and_then(|v| v.as_i64()) {
                 let iso = chrono::DateTime::from_timestamp(ts, 0)
@@ -449,54 +449,6 @@ fn normalize_model(provider: &str, raw: &serde_json::Value) -> Option<serde_json
     Some(serde_json::Value::Object(out))
 }
 
-async fn list_ollama_models(base_url: &str) {
-    let url = format!("{}/api/tags", base_url);
-    let client = reqwest::Client::new();
-
-    let resp = match client.get(&url).send().await {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("error fetching models from {}: {}", url, e);
-            std::process::exit(1);
-        }
-    };
-
-    let body: serde_json::Value = match resp.json().await {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("error parsing response: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    let models = match body["models"].as_array() {
-        Some(l) => l,
-        None => {
-            eprintln!("unexpected response: {}", body);
-            std::process::exit(1);
-        }
-    };
-
-    for m in models {
-        let mut out = serde_json::Map::new();
-        if let Some(name) = m.get("name").and_then(|v| v.as_str()) {
-            out.insert("id".into(), serde_json::Value::String(name.to_string()));
-        }
-        if let Some(size) = m.get("size") {
-            out.insert("size".into(), size.clone());
-        }
-        if let Some(modified) = m.get("modified_at").and_then(|v| v.as_str()) {
-            out.insert(
-                "created".into(),
-                serde_json::Value::String(modified.to_string()),
-            );
-        }
-        if let Ok(json) = serde_json::to_string(&serde_json::Value::Object(out)) {
-            write_line(&json);
-        }
-    }
-}
-
 // -- Main --------------------------------------------------------------------
 
 #[tokio::main]
@@ -518,11 +470,11 @@ async fn main() {
         .unwrap_or_else(|| "http://localhost:11434".to_string());
 
     let (api_key, model) = if is_ollama {
-        // No model: list available models from Ollama and exit
         match cli.model {
             Some(m) => (String::new(), m),
             None => {
-                list_ollama_models(&ollama_base).await;
+                let url = format!("{}/v1/models", ollama_base);
+                list_models("ollama", &url, "").await;
                 return;
             }
         }
@@ -532,7 +484,7 @@ async fn main() {
         match cli.model {
             Some(m) => (key, m),
             None => {
-                list_models(&provider, prov, &key).await;
+                list_models(&provider, prov.models_url, &key).await;
                 return;
             }
         }
