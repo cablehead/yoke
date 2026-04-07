@@ -14,6 +14,7 @@ Built on [yoagent](https://github.com/yologdev/yoagent).
 - [Input](#input)
 - [Output](#output)
 - [Round-tripping](#round-tripping)
+- [Skills](#skills)
 - [Providers](#providers)
 - [Web UI](#web-ui)
 
@@ -70,6 +71,10 @@ available providers:
   gemini
     env: GEMINI_API_KEY
     key: https://aistudio.google.com/apikey
+
+  ollama
+    local, no API key required
+    default: http://localhost:11434
 ```
 
 List models for a provider:
@@ -205,6 +210,30 @@ Replay context against a different model:
 open --raw session.jsonl | yoke --provider openai --model gpt-5.4-mini "summarize what happened"
 ```
 
+## Skills
+
+Load [AgentSkills](https://agentskills.io)-compatible skill directories with `--skills`. Each directory is scanned for `<name>/SKILL.md` subdirectories. Skill metadata (name + description) is injected into the system prompt. The agent can read the full SKILL.md via `read_file` when it activates a skill.
+
+```nushell
+yoke --provider gemini --model gemini-2.5-flash --skills ./skills --tools read_file "use the greet skill"
+
+# multiple directories
+yoke --provider gemini --model gemini-2.5-flash --skills ./skills,~/.yoagent/skills "help me with git"
+```
+
+A skill directory looks like:
+
+```
+skills/
+  greet/
+    SKILL.md
+  weather/
+    SKILL.md
+    scripts/
+```
+
+SKILL.md uses YAML frontmatter with `name` and `description` fields. The body contains full instructions the agent reads on demand.
+
 ## Providers
 
 | Provider | Env var | API |
@@ -212,6 +241,22 @@ open --raw session.jsonl | yoke --provider openai --model gpt-5.4-mini "summariz
 | anthropic | `ANTHROPIC_API_KEY` | Anthropic Messages |
 | openai | `OPENAI_API_KEY` | OpenAI Chat Completions |
 | gemini | `GEMINI_API_KEY` | Google Generative AI |
+| ollama | -- | Local, OpenAI-compatible |
+
+### Ollama
+
+Run models locally with [Ollama](https://ollama.com). No API key required.
+
+```nushell
+# list local models
+yoke --provider ollama
+
+# run a model
+yoke --provider ollama --model gemma4 "hello"
+
+# custom endpoint
+yoke --provider ollama --base_url http://192.168.1.100:11434 --model llama3 "hello"
+```
 
 ## Web UI
 
