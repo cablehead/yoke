@@ -6,6 +6,7 @@ use tokio::sync::mpsc;
 
 mod nu_tool;
 
+use yoagent::provider::model::ThinkingFormat;
 use yoagent::provider::{AnthropicProvider, GoogleProvider, ModelConfig, OpenAiCompatProvider};
 use yoagent::skills::SkillSet;
 use yoagent::tools::{
@@ -521,7 +522,11 @@ async fn main() {
         }
         "ollama" => {
             let base = format!("{}/v1", ollama_base);
-            Agent::new(OpenAiCompatProvider).with_model_config(ModelConfig::local(&base, &model))
+            let mut config = ModelConfig::local(&base, &model);
+            if let Some(ref mut compat) = config.compat {
+                compat.thinking_format = ThinkingFormat::Xai;
+            }
+            Agent::new(OpenAiCompatProvider).with_model_config(config)
         }
         _ => unreachable!(),
     };

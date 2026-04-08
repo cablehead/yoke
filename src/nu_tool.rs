@@ -17,6 +17,12 @@ use yoagent::types::*;
 fn engine_state() -> &'static EngineState {
     static ENGINE: OnceLock<EngineState> = OnceLock::new();
     ENGINE.get_or_init(|| {
+        // nu-command's HTTP commands (http get, http post, etc.) use ureq+rustls
+        // and require nu_command::tls::CRYPTO_PROVIDER to be set before any TLS
+        // connection is attempted. The real `nu` binary sets this in its main();
+        // since we embed the engine directly we must do it here ourselves.
+        nu_command::tls::CRYPTO_PROVIDER.default();
+
         let mut engine_state = create_default_context();
         engine_state = add_shell_command_context(engine_state);
         engine_state = add_cli_context(engine_state);
