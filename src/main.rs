@@ -259,7 +259,7 @@ fn build_tools(spec: &str) -> Vec<Box<dyn AgentTool>> {
             "all" => {
                 tools = default_tools();
                 tools.push(Box::new(WebSearchTool));
-                tools.push(Box::new(nu_tool::NuTool));
+                tools.push(Box::new(nu_tool::NuTool::new()));
                 return tools;
             }
             "none" => return Vec::new(),
@@ -273,7 +273,7 @@ fn build_tools(spec: &str) -> Vec<Box<dyn AgentTool>> {
             "list_files" => tools.push(Box::new(ListFilesTool::default())),
             "search" => tools.push(Box::new(SearchTool::default())),
             "web_search" => tools.push(Box::new(WebSearchTool)),
-            "nu" => tools.push(Box::new(nu_tool::NuTool)),
+            "nu" => tools.push(Box::new(nu_tool::NuTool::new())),
             other => {
                 eprintln!("unknown tool: {}", other);
                 std::process::exit(1);
@@ -544,13 +544,24 @@ async fn main() {
         _ => unreachable!(),
     };
 
+    let tools = match cli.tools.as_deref() {
+        Some(spec) => build_tools(spec),
+        None => Vec::new(),
+    };
+    let tool_descriptions: Vec<serde_json::Value> = tools
+        .iter()
+        .map(|t| {
+            serde_json::json!({
+                "name": t.name(),
+                "description": t.description(),
+            })
+        })
+        .collect();
+
     agent = agent
         .with_model(&model)
         .with_api_key(api_key)
-        .with_tools(match cli.tools.as_deref() {
-            Some(spec) => build_tools(spec),
-            None => Vec::new(),
-        })
+        .with_tools(tools)
         .on_error(|e| eprintln!("error: {}", e));
 
     if !system.is_empty() {
@@ -569,6 +580,13 @@ async fn main() {
                 eprintln!("error loading skills: {}", e);
                 std::process::exit(1);
             }
+        }
+    }
+
+    if !tool_descriptions.is_empty() {
+        let obs = serde_json::json!({"type": "tools", "tools": tool_descriptions});
+        if let Ok(json) = serde_json::to_string(&obs) {
+            write_line(&json);
         }
     }
 

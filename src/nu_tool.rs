@@ -133,7 +133,63 @@ fn engine_state() -> &'static EngineState {
     })
 }
 
-pub struct NuTool;
+pub struct NuTool {
+    description: String,
+}
+
+impl NuTool {
+    pub fn new() -> Self {
+        let mut desc = String::from(
+            "Execute a Nushell script. Output is auto-converted to nuon -- do NOT add \
+             '| to nuon' or '| to json'. Pass structured data via 'input' (JSON) to \
+             avoid quoting issues -- it becomes $in in the pipeline.\
+             \n\n## IMPORTANT: always run `help` FIRST\
+             \nDo NOT guess command names or flags. Run `help <command>` before using \
+             any command you haven't used yet in this conversation.\
+             \n\nExamples:\n\
+             \x20 {command: \"help sort-by\"}\n\
+             \x20 {command: \"$in | sort-by price -r\", input: [{name: \"Widget A\", price: 25.50}, {name: \"Gadget\", price: 15}]}\n\
+             \x20 {command: \"seq 1 10 | each { |n| $n * $n }\"}"
+        );
+
+        if let Some(cfg) = NU_CONFIG.get() {
+            let plugin_names: Vec<String> = cfg
+                .plugins
+                .iter()
+                .filter_map(|p| {
+                    p.file_name()?
+                        .to_str()?
+                        .strip_prefix("nu_plugin_")
+                        .map(String::from)
+                })
+                .collect();
+
+            if !plugin_names.is_empty() {
+                let names = plugin_names.join(", ");
+
+                // Build plugin-specific example using the first plugin name
+                let ex_plugin = &plugin_names[0];
+
+                desc.push_str(&format!(
+                    "\n\n## Plugins loaded: {names}\
+                     \n\nPlugin commands are prefixed with the plugin name (e.g. `{ex_plugin} <subcommand>`).\
+                     \n\nCRITICAL plugin workflow -- follow these steps IN ORDER:\
+                     \n1. `help {ex_plugin}` -- lists available subcommands (do NOT guess command names)\
+                     \n2. `help {ex_plugin} <subcommand>` -- shows flags and usage for that subcommand\
+                     \n3. Use the command, but your pipeline MUST end by converting plugin custom values \
+                     back to native nushell values. The auto-appended `| to nuon` will error on plugin \
+                     custom values.\
+                     \n\nExample plugin workflow:\n\
+                     \x20 Step 1: {{command: \"help {ex_plugin}\"}}\n\
+                     \x20 Step 2: {{command: \"help {ex_plugin} open\"}}\n\
+                     \x20 Step 3: {{command: \"{ex_plugin} open myfile.csv | {ex_plugin} collect | {ex_plugin} into-nu\"}}"
+                ));
+            }
+        }
+
+        Self { description: desc }
+    }
+}
 
 #[async_trait]
 impl AgentTool for NuTool {
@@ -146,7 +202,7 @@ impl AgentTool for NuTool {
     }
 
     fn description(&self) -> &str {
-        "Execute a Nushell script. Output is automatically converted to nuon -- do not add '| to nuon' or '| to json'. Pass structured data via 'input' (JSON) to avoid quoting issues -- it becomes $in in the pipeline.\n\nExamples:\n  {command: \"$in | sort-by price -r\", input: [{name: \"Widget A\", price: 25.50}, {name: \"Gadget\", price: 15}]}\n  {command: \"seq 1 10 | each { |n| $n * $n }\"}"
+        &self.description
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
