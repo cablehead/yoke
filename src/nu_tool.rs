@@ -1,5 +1,6 @@
 //! Nushell tool -- execute nushell scripts with an embedded engine.
 
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use async_trait::async_trait;
@@ -8,19 +9,99 @@ use nu_cmd_lang::create_default_context;
 use nu_command::add_shell_command_context;
 use nu_engine::eval_block_with_early_return;
 use nu_parser::parse;
+use nu_plugin_engine::{GetPlugin, PluginDeclaration};
 use nu_protocol::debugger::WithoutDebug;
 use nu_protocol::engine::{EngineState, Redirection, Stack, StateWorkingSet};
-use nu_protocol::{OutDest, PipelineData, Span};
+use nu_protocol::{OutDest, PipelineData, PluginIdentity, RegisteredPlugin, Span, Type, Value};
 
 use yoagent::types::*;
+
+/// Configuration for the Nu engine, set once before first use.
+static NU_CONFIG: OnceLock<NuConfig> = OnceLock::new();
+
+struct NuConfig {
+    plugins: Vec<PathBuf>,
+    include_paths: Vec<PathBuf>,
+}
+
+/// Call once at startup (before any tool execution) to register plugin
+/// paths and include paths for the embedded Nushell engine.
+pub fn configure(plugins: Vec<PathBuf>, include_paths: Vec<PathBuf>) {
+    let _ = NU_CONFIG.set(NuConfig {
+        plugins,
+        include_paths,
+    });
+}
+
+fn load_plugin(engine_state: &mut EngineState, path: &Path) -> Result<(), String> {
+    let path = path
+        .canonicalize()
+        .map_err(|e| format!("Failed to canonicalize plugin path {path:?}: {e}"))?;
+
+    let identity = PluginIdentity::new(&path, None)
+        .map_err(|_| format!("Invalid plugin path {path:?}: must be named nu_plugin_*"))?;
+
+    let mut working_set = StateWorkingSet::new(engine_state);
+    let plugin = nu_plugin_engine::add_plugin_to_working_set(&mut working_set, &identity)
+        .map_err(|e| format!("Failed to add plugin to working set: {e}"))?;
+
+    engine_state
+        .merge_delta(working_set.render())
+        .map_err(|e| format!("Failed to merge plugin delta: {e}"))?;
+
+    let interface = plugin
+        .clone()
+        .get_plugin(None)
+        .map_err(|e| format!("Failed to spawn plugin {path:?}: {e}"))?;
+
+    plugin.set_metadata(Some(
+        interface
+            .get_metadata()
+            .map_err(|e| format!("Failed to get plugin metadata: {e}"))?,
+    ));
+
+    let mut working_set = StateWorkingSet::new(engine_state);
+    for signature in interface
+        .get_signature()
+        .map_err(|e| format!("Failed to get plugin signatures: {e}"))?
+    {
+        let decl = PluginDeclaration::new(plugin.clone(), signature);
+        working_set.add_decl(Box::new(decl));
+    }
+    engine_state
+        .merge_delta(working_set.render())
+        .map_err(|e| format!("Failed to merge plugin commands: {e}"))?;
+
+    Ok(())
+}
+
+fn set_lib_dirs(engine_state: &mut EngineState, paths: &[PathBuf]) -> Result<(), String> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+    let span = Span::unknown();
+    let vals: Vec<Value> = paths
+        .iter()
+        .map(|p| Value::string(p.to_string_lossy(), span))
+        .collect();
+
+    let mut working_set = StateWorkingSet::new(engine_state);
+    let var_id = working_set.add_variable(
+        b"$NU_LIB_DIRS".into(),
+        span,
+        Type::List(Box::new(Type::String)),
+        false,
+    );
+    working_set.set_variable_const_val(var_id, Value::list(vals, span));
+    engine_state
+        .merge_delta(working_set.render())
+        .map_err(|e| format!("Failed to set NU_LIB_DIRS: {e}"))?;
+    Ok(())
+}
 
 fn engine_state() -> &'static EngineState {
     static ENGINE: OnceLock<EngineState> = OnceLock::new();
     ENGINE.get_or_init(|| {
-        // nu-command's HTTP commands (http get, http post, etc.) use ureq+rustls
-        // and require nu_command::tls::CRYPTO_PROVIDER to be set before any TLS
-        // connection is attempted. The real `nu` binary sets this in its main();
-        // since we embed the engine directly we must do it here ourselves.
         nu_command::tls::CRYPTO_PROVIDER.default();
 
         let mut engine_state = create_default_context();
@@ -29,6 +110,25 @@ fn engine_state() -> &'static EngineState {
         if let Ok(cwd) = std::env::current_dir() {
             gather_parent_env_vars(&mut engine_state, cwd.as_ref());
         }
+
+        let config = NU_CONFIG.get();
+
+        // Load plugins
+        if let Some(cfg) = config {
+            for path in &cfg.plugins {
+                if let Err(e) = load_plugin(&mut engine_state, path) {
+                    eprintln!("warning: failed to load plugin: {e}");
+                }
+            }
+        }
+
+        // Set include paths
+        if let Some(cfg) = config {
+            if let Err(e) = set_lib_dirs(&mut engine_state, &cfg.include_paths) {
+                eprintln!("warning: failed to set include paths: {e}");
+            }
+        }
+
         engine_state
     })
 }

@@ -14,9 +14,10 @@ clap = { version = "4", features = ["derive"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 chrono = { version = "0.4.44", default-features = false, features = ["clock"] }
 async-trait = "0.1"
-nu-cli = "0.111.0"
-nu-cmd-lang = "0.111.0"
-nu-command = "0.111.0"
-nu-engine = "0.111.0"
-nu-parser = "0.111.0"
-nu-protocol = "0.111.0"
+nu-cli = "0.112.1"
+nu-cmd-lang = "0.112.1"
+nu-command = "0.112.1"
+nu-engine = "0.112.1"
+nu-parser = "0.112.1"
+nu-plugin-engine = "0.112.1"
+nu-protocol = "0.112.1"

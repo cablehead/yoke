@@ -41,6 +41,16 @@ struct Cli {
     #[arg(long)]
     skills: Option<String>,
 
+    /// Nushell plugin paths to load (can be specified multiple times).
+    /// e.g. --plugin /usr/local/bin/nu_plugin_polars
+    #[arg(long = "plugin")]
+    plugins: Vec<std::path::PathBuf>,
+
+    /// Nushell include paths for module resolution (can be specified multiple times).
+    /// e.g. -I ./lib
+    #[arg(short = 'I', long = "include-path")]
+    include_paths: Vec<std::path::PathBuf>,
+
     /// Optional trailing prompt appended as a final user message
     #[arg()]
     prompt: Option<String>,
@@ -461,6 +471,9 @@ fn normalize_model(provider: &str, raw: &serde_json::Value) -> Option<serde_json
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+
+    // Configure the embedded Nushell engine with plugins and include paths
+    nu_tool::configure(cli.plugins, cli.include_paths);
 
     // No provider: list available providers and exit
     let provider = match cli.provider {
