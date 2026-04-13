@@ -4,3 +4,5 @@ captures/
 store/
 *.jsonl
 !fixtures/*.jsonl
+assets/
+scripts/check-pr.sh
