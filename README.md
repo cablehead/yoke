@@ -182,6 +182,27 @@ worrying about string quoting:
 {"command": "$in | sort-by price -r", "input": [{"name": "Widget A", "price": 25.50}]}
 ```
 
+#### Plugins and modules
+
+Load Nushell plugins with `--plugin` and module search paths with `-I`:
+
+```nushell
+# load the polars plugin
+yoke --provider gemini --model gemini-2.5-flash --tools nu \
+  --plugin /usr/local/bin/nu_plugin_polars \
+  "open data.csv and find the top 5 rows by price"
+
+# multiple plugins and an include path
+yoke --provider gemini --model gemini-2.5-flash --tools nu \
+  --plugin /usr/local/bin/nu_plugin_polars \
+  --plugin /usr/local/bin/nu_plugin_formats \
+  -I ./lib \
+  "use mymod.nu; analyze the data"
+```
+
+Plugin names are included in the tool description so the LLM knows
+they're available and can discover subcommands via `help`.
+
 ### Web search
 
 Web search is a provider-side capability:
