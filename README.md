@@ -40,11 +40,11 @@ yoke --provider anthropic --model claude-sonnet-4-20250514 "refactor main.rs"
   | tee { save -f session.jsonl }
 
 # continue the conversation
-open --raw session.jsonl
+cat session.jsonl
   | yoke --provider anthropic --model claude-sonnet-4-20250514 "now add tests"
 
 # replay the same context against a different model
-open --raw session.jsonl
+cat session.jsonl
   | yoke --provider openai --model gpt-5.4-mini "summarize what happened"
 ```
 
@@ -252,14 +252,14 @@ yoke --provider anthropic --model claude-sonnet-4-20250514 "what files are here?
 Continue the conversation:
 
 ```nushell
-open --raw session.jsonl
+cat session.jsonl
   | yoke --provider anthropic --model claude-sonnet-4-20250514 "now count them"
 ```
 
 Replay context against a different model:
 
 ```nushell
-open --raw session.jsonl
+cat session.jsonl
   | yoke --provider openai --model gpt-5.4-mini "summarize what happened"
 ```
 
