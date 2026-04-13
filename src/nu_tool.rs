@@ -166,23 +166,14 @@ impl NuTool {
 
             if !plugin_names.is_empty() {
                 let names = plugin_names.join(", ");
-
-                // Build plugin-specific example using the first plugin name
-                let ex_plugin = &plugin_names[0];
+                let ex = &plugin_names[0];
 
                 desc.push_str(&format!(
-                    "\n\n## Plugins loaded: {names}\
-                     \n\nPlugin commands are prefixed with the plugin name (e.g. `{ex_plugin} <subcommand>`).\
-                     \n\nCRITICAL plugin workflow -- follow these steps IN ORDER:\
-                     \n1. `help {ex_plugin}` -- lists available subcommands (do NOT guess command names)\
-                     \n2. `help {ex_plugin} <subcommand>` -- shows flags and usage for that subcommand\
-                     \n3. Use the command, but your pipeline MUST end by converting plugin custom values \
-                     back to native nushell values. The auto-appended `| to nuon` will error on plugin \
-                     custom values.\
-                     \n\nExample plugin workflow:\n\
-                     \x20 Step 1: {{command: \"help {ex_plugin}\"}}\n\
-                     \x20 Step 2: {{command: \"help {ex_plugin} open\"}}\n\
-                     \x20 Step 3: {{command: \"{ex_plugin} open myfile.csv | {ex_plugin} collect | {ex_plugin} into-nu\"}}"
+                    "\n\nPlugins loaded: {names}. \
+                     Plugin commands are prefixed with the plugin name. \
+                     Do NOT guess subcommand names -- discover them with help.\
+                     \n\nExample:\n\
+                     \x20 {{command: \"help {ex}\"}}"
                 ));
             }
         }
