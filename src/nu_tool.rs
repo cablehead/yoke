@@ -143,12 +143,14 @@ impl NuTool {
             "Execute a Nushell script. Output is auto-converted to nuon -- do NOT add \
              '| to nuon' or '| to json'. Pass structured data via 'input' (JSON) to \
              avoid quoting issues -- it becomes $in in the pipeline.\
-             \n\n## IMPORTANT: always run `help` FIRST\
-             \nDo NOT guess command names or flags. Run `help <command>` before using \
-             any command you haven't used yet in this conversation.\
+             \n\nUse help liberally to learn how nushell works. \
+             Do NOT guess command names or flags -- discover them with help. \
+             If you encounter an error, you MUST use help related to your task \
+             before trying again.\
              \n\nExamples:\n\
-             \x20 {command: \"help sort-by\"}\n\
-             \x20 {command: \"$in | sort-by price -r\", input: [{name: \"Widget A\", price: 25.50}, {name: \"Gadget\", price: 15}]}\n\
+             \x20 {command: \"help where\"}\n\
+             \x20 {command: \"help --find convert\"}\n\
+             \x20 {command: \"$in | where price > 20\", input: [{name: \"Widget A\", price: 25.50}, {name: \"Gadget\", price: 15}]}\n\
              \x20 {command: \"seq 1 10 | each { |n| $n * $n }\"}"
         );
 
@@ -170,10 +172,11 @@ impl NuTool {
 
                 desc.push_str(&format!(
                     "\n\nPlugins loaded: {names}. \
-                     Plugin commands are prefixed with the plugin name. \
-                     Do NOT guess subcommand names -- discover them with help.\
-                     \n\nExample:\n\
-                     \x20 {{command: \"help {ex}\"}}"
+                     Plugin commands are prefixed with the plugin name.\
+                     \n\nExamples:\n\
+                     \x20 {{command: \"help {ex}\"}}\n\
+                     \x20 {{command: \"help {ex} --find convert\"}}\n\
+                     \x20 {{command: \"help {ex} <subcommand>\"}} # drill into specific commands"
                 ));
             }
         }
