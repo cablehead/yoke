@@ -16,6 +16,27 @@ use yoagent::tools::{
 use yoagent::types::*;
 use yoagent::Agent;
 
+#[derive(clap::ValueEnum, Clone, Copy)]
+enum ThinkingArg {
+    Off,
+    Minimal,
+    Low,
+    Medium,
+    High,
+}
+
+impl From<ThinkingArg> for ThinkingLevel {
+    fn from(a: ThinkingArg) -> Self {
+        match a {
+            ThinkingArg::Off => ThinkingLevel::Off,
+            ThinkingArg::Minimal => ThinkingLevel::Minimal,
+            ThinkingArg::Low => ThinkingLevel::Low,
+            ThinkingArg::Medium => ThinkingLevel::Medium,
+            ThinkingArg::High => ThinkingLevel::High,
+        }
+    }
+}
+
 #[derive(Parser)]
 #[command(about = "Headless agent harness. JSONL in, JSONL out.", version)]
 struct Cli {
@@ -50,6 +71,10 @@ struct Cli {
     /// e.g. -I ./lib
     #[arg(short = 'I', long = "include-path")]
     include_paths: Vec<std::path::PathBuf>,
+
+    /// Extended thinking budget: off, minimal, low, medium, high (default: off)
+    #[arg(long, value_enum, default_value_t = ThinkingArg::Off)]
+    thinking: ThinkingArg,
 
     /// Optional trailing prompt appended as a final user message
     #[arg()]
@@ -562,6 +587,7 @@ async fn main() {
         .with_model(&model)
         .with_api_key(api_key)
         .with_tools(tools)
+        .with_thinking(cli.thinking.into())
         .on_error(|e| eprintln!("error: {}", e));
 
     if !system.is_empty() {
