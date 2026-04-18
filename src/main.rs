@@ -78,21 +78,27 @@ struct Cli {
     thinking: ThinkingArg,
 
     /// Max agent turns before stopping. Number, or "unlimited" to disable.
-    #[arg(long, default_value = "50", value_parser = parse_max_turns)]
-    max_turns: Option<usize>,
+    #[arg(long, default_value = "50")]
+    max_turns: MaxTurns,
 
     /// Optional trailing prompt appended as a final user message
     #[arg()]
     prompt: Option<String>,
 }
 
-fn parse_max_turns(s: &str) -> Result<Option<usize>, String> {
-    match s {
-        "unlimited" | "none" => Ok(None),
-        n => n
-            .parse::<usize>()
-            .map(Some)
-            .map_err(|e| format!("expected a number or \"unlimited\": {}", e)),
+#[derive(Clone)]
+struct MaxTurns(Option<usize>);
+
+impl std::str::FromStr for MaxTurns {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "unlimited" | "none" => Ok(MaxTurns(None)),
+            n => n
+                .parse::<usize>()
+                .map(|v| MaxTurns(Some(v)))
+                .map_err(|e| format!("expected a number or \"unlimited\": {}", e)),
+        }
     }
 }
 
@@ -604,7 +610,7 @@ async fn main() {
         .with_tools(tools)
         .with_thinking(cli.thinking.into())
         .with_execution_limits(ExecutionLimits {
-            max_turns: cli.max_turns,
+            max_turns: cli.max_turns.0,
             ..ExecutionLimits::default()
         })
         .on_error(|e| eprintln!("error: {}", e));
