@@ -466,23 +466,23 @@ fn keep_within_budget(messages: &[AgentMessage], budget: usize) -> Vec<AgentMess
 // Execution limits
 // ---------------------------------------------------------------------------
 
-/// Execution limits for the agent loop
+/// Execution limits for the agent loop. `None` means unlimited.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionLimits {
     /// Maximum number of turns (LLM calls)
-    pub max_turns: usize,
+    pub max_turns: Option<usize>,
     /// Maximum total tokens consumed
-    pub max_total_tokens: usize,
+    pub max_total_tokens: Option<usize>,
     /// Maximum wall-clock time
-    pub max_duration: std::time::Duration,
+    pub max_duration: Option<std::time::Duration>,
 }
 
 impl Default for ExecutionLimits {
     fn default() -> Self {
         Self {
-            max_turns: 50,
-            max_total_tokens: 1_000_000,
-            max_duration: std::time::Duration::from_secs(600),
+            max_turns: Some(50),
+            max_total_tokens: Some(1_000_000),
+            max_duration: Some(std::time::Duration::from_secs(600)),
         }
     }
 }
@@ -512,25 +512,28 @@ impl ExecutionTracker {
 
     /// Check if any limit has been exceeded. Returns the reason if so.
     pub fn check_limits(&self) -> Option<String> {
-        if self.turns >= self.limits.max_turns {
-            return Some(format!(
-                "Max turns reached ({}/{})",
-                self.turns, self.limits.max_turns
-            ));
+        if let Some(max) = self.limits.max_turns {
+            if self.turns >= max {
+                return Some(format!("Max turns reached ({}/{})", self.turns, max));
+            }
         }
-        if self.tokens_used >= self.limits.max_total_tokens {
-            return Some(format!(
-                "Max tokens reached ({}/{})",
-                self.tokens_used, self.limits.max_total_tokens
-            ));
+        if let Some(max) = self.limits.max_total_tokens {
+            if self.tokens_used >= max {
+                return Some(format!(
+                    "Max tokens reached ({}/{})",
+                    self.tokens_used, max
+                ));
+            }
         }
-        let elapsed = self.started_at.elapsed();
-        if elapsed >= self.limits.max_duration {
-            return Some(format!(
-                "Max duration reached ({:.0}s/{:.0}s)",
-                elapsed.as_secs_f64(),
-                self.limits.max_duration.as_secs_f64()
-            ));
+        if let Some(max) = self.limits.max_duration {
+            let elapsed = self.started_at.elapsed();
+            if elapsed >= max {
+                return Some(format!(
+                    "Max duration reached ({:.0}s/{:.0}s)",
+                    elapsed.as_secs_f64(),
+                    max.as_secs_f64()
+                ));
+            }
         }
         None
     }
@@ -721,9 +724,9 @@ mod tests {
     #[test]
     fn test_execution_limits() {
         let limits = ExecutionLimits {
-            max_turns: 3,
-            max_total_tokens: 1000,
-            max_duration: std::time::Duration::from_secs(60),
+            max_turns: Some(3),
+            max_total_tokens: Some(1000),
+            max_duration: Some(std::time::Duration::from_secs(60)),
         };
 
         let mut tracker = ExecutionTracker::new(limits);

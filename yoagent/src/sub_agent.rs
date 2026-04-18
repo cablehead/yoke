@@ -232,10 +232,9 @@ impl AgentTool for SubAgentTool {
             context_config: None,
             compaction_strategy: None,
             execution_limits: Some(ExecutionLimits {
-                max_turns: self.max_turns,
-                // Generous token/duration limits — turn limit is the primary guard
-                max_total_tokens: 1_000_000,
-                max_duration: std::time::Duration::from_secs(300),
+                max_turns: Some(self.max_turns),
+                max_total_tokens: Some(1_000_000),
+                max_duration: Some(std::time::Duration::from_secs(300)),
             }),
             cache_config: self.cache_config.clone(),
             tool_execution: self.tool_execution.clone(),

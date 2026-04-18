@@ -175,9 +175,9 @@ fn test_full_conversation_roundtrip() {
 fn test_execution_limits_roundtrip() {
     use yoagent::context::ExecutionLimits;
     let limits = ExecutionLimits {
-        max_turns: 25,
-        max_total_tokens: 500_000,
-        max_duration: std::time::Duration::from_secs(300),
+        max_turns: Some(25),
+        max_total_tokens: Some(500_000),
+        max_duration: Some(std::time::Duration::from_secs(300)),
     };
     let json = serde_json::to_string(&limits).expect("serialize");
     let back: ExecutionLimits = serde_json::from_str(&json).expect("deserialize");

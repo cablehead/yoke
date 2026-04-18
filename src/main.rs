@@ -6,6 +6,7 @@ use tokio::sync::mpsc;
 
 mod nu_tool;
 
+use yoagent::context::ExecutionLimits;
 use yoagent::provider::model::ThinkingFormat;
 use yoagent::provider::{AnthropicProvider, GoogleProvider, ModelConfig, OpenAiCompatProvider};
 use yoagent::skills::SkillSet;
@@ -76,9 +77,23 @@ struct Cli {
     #[arg(long, value_enum, default_value_t = ThinkingArg::Off)]
     thinking: ThinkingArg,
 
+    /// Max agent turns before stopping. Number, or "unlimited" to disable.
+    #[arg(long, default_value = "50", value_parser = parse_max_turns)]
+    max_turns: Option<usize>,
+
     /// Optional trailing prompt appended as a final user message
     #[arg()]
     prompt: Option<String>,
+}
+
+fn parse_max_turns(s: &str) -> Result<Option<usize>, String> {
+    match s {
+        "unlimited" | "none" => Ok(None),
+        n => n
+            .parse::<usize>()
+            .map(Some)
+            .map_err(|e| format!("expected a number or \"unlimited\": {}", e)),
+    }
 }
 
 // -- JSONL output: observation events ----------------------------------------
@@ -588,6 +603,10 @@ async fn main() {
         .with_api_key(api_key)
         .with_tools(tools)
         .with_thinking(cli.thinking.into())
+        .with_execution_limits(ExecutionLimits {
+            max_turns: cli.max_turns,
+            ..ExecutionLimits::default()
+        })
         .on_error(|e| eprintln!("error: {}", e));
 
     if !system.is_empty() {
