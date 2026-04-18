@@ -1,0 +1,252 @@
+event: message_start
+data: {"type":"message_start","message":{"model":"claude-sonnet-4-20250514","id":"msg_01FuZe2WKoAPKdQxGq3cU7mx","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"stop_details":null,"usage":{"input_tokens":2042,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"output_tokens":1,"service_tier":"standard","inference_geo":"not_available"}}              }
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu_01Mr7Gmv9uKnCtWesRrfMxWE","name":"web_search","input":{},"caller":{"type":"direct"}}              }
+
+event: ping
+data: {"type": "ping"}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":""}      }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"q"} }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"uery\": \"T"}            }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"oron"}    }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"to po"}              }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"pulat"}               }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"ion 20"}      }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"26\"}"}       }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0            }
+
+event: content_block_start
+data: {"type":"content_block_start","index":1,"content_block":{"type":"web_search_tool_result","tool_use_id":"srvtoolu_01Mr7Gmv9uKnCtWesRrfMxWE","content":[{"type":"web_search_result","title":"Toronto Population 2026","url":"https://worldpopulationreview.com/canadian-cities/toronto","encrypted_content":"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","page_age":"1 day ago"},{"type":"web_search_result","title":"Toronto, Canada Metro Area Population (1950-2026) | MacroTrends","url":"https://www.macrotrends.net/global-metrics/cities/20402/toronto/population","encrypted_content":"Ep0GCioIDhgCIiRlMmJmYTlmNS04ZDRjLTQ2MDYtODM5Ni1iOGUwY2U2YmNmMDgSDKIePeJB/9f1RKbilBoM+ewlGU9M865eWMIdIjCTlndUSXe3lFvZeO8lYtCc7xN3FgE/Jrn3GrJyOV/LhVvK+DtiE37Hpoj7TQ19iVEqoAWvjz6tH93ZuFEMT7n6rzIIc+UW6KswN/TyaToXmGtToMLhinkEzvBEQV1irmBt/xoTgBgSFGMQU975CaDHGOo0InZDyfXWIt0XcHQNXih99u5yyBOqkYe7aCQxU4u4waiXbIs77vVUwU4FnLVmYzSkQBoerApFydCOGDuHyjmderhGjYfFf0jgrAazdWz/NGtQgLWXYKrQHJryZHL4o+A27yf9/IQyhGV8KfHqcXEpIgc2yZjMkkhR4M/F15eLqhjqh5A0feVqzylZoB55Hr/2KaZE+VmAN2AUHzK8m+o5rVeje2jD5GmL31Grus17fjcqm8S+dIuovXb2RLNJBnb9ZRL5qu9do5inCxr4jaLpSgG/GimHI0OZMm//ZhgY2p1Wmd0ZXVVLdnZNuxQ1HmBb+qH7bov+7ZUJVNOJs9BcU/qrpw47hlEznmhIOUtNyDTxG3VJmmv8t8yQcZ/K8nOANTxmQzjq6jW2Q25y4CotnAiWsxhG9GSGwXWLX/bMqc6TuxznDA2+FPTqqOhRbZvXxFohKGK/qpXZrA4eLtupCUFPltKCFNrb/+LKqEp8BoIC5wL0Tmg/f4UQahS7lI7Zi2BhN9Ag68CR9VoqSQLAtqxUJ/YSPSCBPj6lbDeWKb5XmnusMQtgSi3FYapAJOl2tyE2zVBXiV9JCN/dtfRcpnk6tmMb8po1B4uTVgy3BzMyicJy9QYYRD9i9uvHDDWEq0/hivJwqVeA0hiaLytEiuDps1ux8zkWKYd3kYR0whugNw5rdanjaEc0uOrZA9ulQVfT1G3siii/2RFaciw02hr0yb97enjGcu0IX8OzEgsjR0cJSxs4xU+40qp7FogZHwzhNQB0COVGXtzewsNebQ8/H7TSZsRe06F0yLIrq8IYAw==","page_age":null},{"type":"web_search_result","title":"Toronto - Wikipedia","url":"https://en.wikipedia.org/wiki/Toronto","encrypted_content":"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","page_age":"1 day ago"},{"type":"web_search_result","title":"Toronto population growth and statistics","url":"https://www.facebook.com/groups/cityscapes/posts/2951065581752251/","encrypted_content":"EsUBCioIDhgCIiRlMmJmYTlmNS04ZDRjLTQ2MDYtODM5Ni1iOGUwY2U2YmNmMDgSDEmaNDsMXZdIjto1WBoMCk6qedX7HK67HzpAIjCRa2q63oo007w2O8zGrynqYS5HzWKpHN8KjqwDff15HFlaHJEAZfCgFrU0Mhs32XEqSW6JPIbRvT/d31QZwyCt1yODJtw7e5RS6QO+LjBuD7GRq1yGRGZOJJSvBwUgNtym4rzG37qXnxrV9qsLZnr+8SLfIPt2uATG1jEYAw==","page_age":null},{"type":"web_search_result","title":"Toronto, Canada Metro Area Population | Historical Data | Chart | 1950-2026 | MacroTrends","url":"https://www.macrotrends.net/datasets/global-metrics/cities/20402/toronto/population","encrypted_content":"EoYECioIDhgCIiRlMmJmYTlmNS04ZDRjLTQ2MDYtODM5Ni1iOGUwY2U2YmNmMDgSDNizL8MWBr2iINBJhRoMa4flFerglO8AERUTIjC9+RL/yPs0g2fa304+Tu3g6O2d3yHG09cghY+OwfojrqFn9H25Y6mDT7eH4v+FQKgqiQNPO72S6NSnaanqo9ETmggwb/ZZy7goGD+j+pf/gT/8/bXq5/6Mk6Cgtgf+8D0JWPw5MZo5RUagoIkA0JGq/ugpW9O49igH1J1si1JVPz4g5xv+XJGBk84UMZJSR6brb1P3cyfm5pDEqSGPZHkgvbueQwRl8hXSVkOa/0c+L5RTW1v7EmZhyafYo4XTUuUDX7zyUlXtexueQ3VyeqU6mpt3UafYKXdnBl98lJtXy9C6Nu50h1+D8CjI8OEj6oNlkIMGYcbLJs0sZqfMo9Ru+kSKiH+Ig4w2KoY1ZUn8sfL75rEPucxSJgzx0E87XxuzEJuiJGt45vqAt8LAcegGifa75mMzyWMwQBkmgw1dHvcG1+ymnjlms4R5Bgs6zccanVbmwD3iBlM4NOmtKO5+lirheHNFYBA7UilfwxvGTwgiPppJYnoinW41PYc9Q5XGznJWKPDmRnQQMXKv3GzuKYoygwyTWh7fxMumjZEYnku1vHR2ZZQDbHCBAJl5jL2Iv3IAdXpXYzdlfP4YAw==","page_age":"February 28, 2026"},{"type":"web_search_result","title":"Toronto Population 2026 - Population Stat","url":"https://chislennost.com/en/ca/population_of_toronto_6667.html","encrypted_content":"EpIICioIDhgCIiRlMmJmYTlmNS04ZDRjLTQ2MDYtODM5Ni1iOGUwY2U2YmNmMDgSDLVe8exU9VQf5ktZqBoMIqO20o3qCyVrHm22IjDFHpIR7cXKhEMiaqBE+5dtf/8RLuOl6MepFTTGkMwASLCfDgja6gp2sl+QL0DRHQIqlQdoXxRmFQ1d5Nj85z806ysqDcAjWPOjYNdLgWv8lmmdQW+pK3rw0ohW/wNQdbij7/6HfNXSEqFFqR7lWWhbCJtadYiDwGYlEWeVaDAYzjgyiKyy/g/r0DkVwkYzAmz+0gAozoV1FP1BQAvzDwQlUgeVlEsq44L+P8CY3hqso2bZ49e6oXS30OKd58xX9rqMftoU04D26niKTOTt58/QjiULq5prF2UH2hTUaIQP5qQjuOtSNqYnJsXVQgVorWgcLd2+XNq52bjiLlPn12zb2Njcv4qnWOzNNqD86IFNVLdOcGYrNA3NFYJYqHllwhzvnHsghPNEav8p7Ar2fbPilFVtyJ5VAvUQrGxpsLdoNc16THuY8ZjfW4I122HdHxb+1buoip8Ktyh4Y+ds3kwMLIJL/66+bg6/5f6K0LDVFRk70z0fvxUk0ANa94FGIoJ+1Ra7rJDAXFFsQx19vw57jnTMX+qpbaVyUdtPK+5vBJhT6ZHKle57lh/myaHgYzHUAD4ju16XDBHDehtS/oz+g7L1tf3m5CxPWLpJlhrsXGgUU/7twTS6dQuwJoU8z1+L6CjdfcOltCGBj9tWpkQjO9jVgPPMric2X3/2TJSxT2Y4Q9FeF9rUXPua7/mqbD0G37aE/Q9lz26gwhJRCbJlxN8I8Wn8FfPSmjgcnXF0/B21dHQEGoCdRAsDsUhvGAp291W8If9rFkcgA1fHnHhEExafBmo84klUbgVHGWlIKRK/sUoFpYyKqDsd4s9gPnDvWXaxkYWgc0nrPgKMm4pLSAK31KwIFhFLC08ETfhEHJTLlN7HOliA4avxQVV/o1Hbhvhp122QARLV6S6Xdrmb/bO5ie29bGjkbIV058dJ3vDHJ+a0pa3dtCTdoKMAKmhpJszoZ1sAocXGR+0PTr5Xh26OCC7dirhCpmsjdBJTLwqDxH+XgAsxjpXcvbEhsLLlHY5GJSCua9ADK1BvzQEajpKchB7DM02qBJJ8p4gaVOLXwvyjJJ2eEUDO5TowwpBUwkcSJGugO5K9d5j0RiwSRbIs9/2PbgJ8o0/aY09aUe1DnNOuEd7ypyCBSWvwN/FrIIVkHphjq5mwuXrlCBKMLoCFoa7EE3CI09wETd5XQNpWC1blBU2s+zYxxeUvKXdeJVjH6jaVn3yGtGZU8kwk3xq5ou1XB6quAP4SMWh9Pnxk14VAJSRJ9nPk0/1tgLmrxskW9gz8EBgD","page_age":null},{"type":"web_search_result","title":"Toronto Population 2026 ❤️ | Canada Population","url":"https://www.canadapopulation.net/toronto-population/","encrypted_content":"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","page_age":null},{"type":"web_search_result","title":"Toronto Population 2026 - Map, Facts & Demographics","url":"https://worldcitiesexplorer.com/en/cities/toronto/","encrypted_content":"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","page_age":"February 13, 2026"},{"type":"web_search_result","title":"Canada Population (2026) - Worldometer","url":"https://www.worldometers.info/world-population/canada-population/","encrypted_content":"EokcCioIDhgCIiRlMmJmYTlmNS04ZDRjLTQ2MDYtODM5Ni1iOGUwY2U2YmNmMDgSDAbJmm9Y8+JJbo4FWBoMaf/dX1XrOrsp6c9iIjDW6tpP0JeDeXQ/YCVrGkrolB1wnIKElPoBhTvk2RYRKuo9RiMMZORJvoErye4C6dIqjBtHypLbrD/08wn0uiSLT5e1x3ivem98CnaMcLLzUYw3fIfCKTDyiPuoVwUzciuhD9xgSboEHelavd7fNnjWy0/3wd8Ba/jvysc2IQz4GhBmx+Xyfh6593euyeas5h7dCtL1NyPf+hiUZRRKcmQWgCm74xYn356p9Pz25mT8iKrEuE6cP4Z9pWW4pTQbs6WLP26a8GBxI+vZNnedNwgh05E+g1jsWVWteXf9dWZGkIFZzlW16ugVv/e8+enNLIzKNAuMHHC1ZwztNhMyWtMf/l1nVpItGs1dmNpEQnGo+m/7bTC91XA9GluhL1SPxC7vdQiBkPfp/nWRPwL61JyrrqxMO84saF3p9EtJ6Nn7WQgBjeBIh1No6nxwfSbiPhUBgBC3+TnIE41/5UGrCGmBXU5+TvtKQVMUHf3OIgYegO+vD2mbWqUcKPDS/ms9HQaUmICI0P+qMv0eM1Mg5+Z+P7CrPSiXj8V5eitSuUWemgd+mefXq1bP1H8+2KdwF3wAhLUnKrCzMMdweIdI09+Jam1OZtcn6YbjdDaziP+WGhWAbj2Te6k9YxqeXxBenrgAUdPg1OvLJQBJYF6wpWwyczGQhMj7YuyzLZ1qJBjUNv/Z72UUZIhGFXK7/1+4SuMuH4XmSERH9QV80xwza9IXQ68QqtuoHDtlUcHzdTEcxSmTs4PpC8EGC85stDLVYNQ2t9q8nZfm34vNwnKjzON0yjooD8HPxRwS0p+Vr0VnkHGS/07btBDtbMQ8LeK8lQxXRVAazTzlqWb220rS3prT7uu5Qe9QLJ/xia1TbWFLUZLiKmaGlPLHkVhMwruCSPbmZy/JoS3aWw6F1VKr80C92zPShrFhKaf0Gkzkp+OxU4R5COkPQkqnS7+iPSY84/k8sA5YJvNRY9gLg3MgBQwcThl9airV4mjB0kaqFqy/6ow03xdad18VNAdmWBgm+0Pw76ABDvim0DMDuLE0+osH/hsmBidPEzizo9hsrJhDlWEk54HYKCWrPNoi7jW5eEdTuv33NTWuQQLeXDn7XXGVETK9ePqVAHEjXJWMB7/h1AEnrckt9ruzdVZoC7QQ/MHoOvt9q+xnkmjOQbY7aLaAnFFErke8dHT++LZiKk94fG/1FFaZAbcqTdt1twvUa+OAAWryoMhp7lfIkK4ZW6th6PgiI5/9HZDZgi9qL1M7cXSSVTZVXW1GLN433g/ltDeQEOUBhjqOjIRvToBrZ8Anjq3RzH0YRvV5bYORcHK761MnAdwH1XRd809ZVvB37EsnPruy+ieIeTgzfnHk+eUlRgwLs2mAvHzLQ787OPboW5HejeafbmkHOXoQyX5xbDcauva1qUT7enuVluVaVNVY5YVE+Brbsxjui/EMn/R20JGMOTyh4Ekk7ItV6nUutmLDO7ggVbMgHCd14pkxm4/QiOc3KG/nnJC/1dQZI6h2G0xXggtQh0Cd5R43mxk6mpEQmtdyvqeelA+8kjVkYhpAnDVGPqX7NjgBbn3ukaF8NCVR34ZZOYhQx7RHf1HALPXNj+74SLUE1vDWTRmQp+YZjA6QV4IwHdOu54d5MoZSf71OC23rpkvmmYgPUhAwfJVVVv39XoR1BQZ1sa2E81PpcNJvh8vDZVaHrtSeM5istgcGfznwH6ESkvpBXaxa/kr+QswDn/alE3ktko6Jq3KEFzZ2z8srn9fNjGs9Q5+XFMURrWjTPBratwRtVrqFvWqOo6z/jeJNRKchFCuRZXRGpM0mwPOh8wNUbqW1EtPk0bzv9iQMmFwtPn++EO4PQoRt02Amj5CVqGncER5qeUuxxf6nIX5621SRbF8UIVMA+WVMGHYis9cFcMIMKOuOpaovDb5nh56ayWhknDqfVTx0I6oMPlcv1hGZA6sH+v6T1+ygyVmAa12g6yyYKceh3LP68pflUup7eE5F38s0EoAC1Ey6vx60XEkDJnQ6oQouwFv3vT7+IOqtWhssa9Qve+lb8vycfc5uNkn2MBZGKn4clmZnwQ6LUK9LgmVhiQZ2fRyQMesNDHC8v6zpoNCdgIj/Y7QIJ1H94nwntik+hwZbkjUM1dE2HutT7pqoRbJy41ex1wRftU663WBP5fLBNi63ykeI2zwIQq1+j5QWVLJ1L/+89Y5z4f0hkwget2R5YeM7I/MuLsLnecNsT4ud8OYygeZUA9nsl2b3h6fysFAnRaQQQSgpPU4tcFMajBrP3bb6NLtIjIhyxmtvPNsSHkW9lisZFcWXHExC4B8fWkl9FWp3uy8C70ZcgoLda0eK/anJ5/nySNDnSVIATRLaJ0XEFCYaqTdM2LuSi4E6ezIgxZRo+sgL0dZlBaoNjWq1UR/3yzvpkYOVyW4+urR1vGVvw6ldHjzk15xk89f/k14mpWASSXxe4LmleFl41DLWitUVclBbKoG1j51HqTBvYLWHqJ1LXO+WYo5jk0wcCXKaDyqJA1twmRgj2dk9CSBahrxMyoFHJ1EkFMomOG3ijkRmQhA0Wq9QzPlkreuEhPdl2Ox0qwFCD15+br5A0RwCkQoQe40YQAJz/qabHXFWOPGcb0iR4myVlvmawAk4wyWe8QEJOtxA/eqbItBMtnDbUW2gGEViTKnCTn37rPfMiUSBoiZYEwGSDr1/RcWYvFV4gJIeBL7pQsGBWDYoctqttPA/swLWbol0fhgzZM5TFQwxQQ0jxc8BArdQvDoaHzuuB/TamzvbLSWVsJD2UwtFKlfIjnTe9kh0VzIBNcxCCZWw1VqKj/dia2IK440g3CgT3yVcDKFf+eG+AetwHtWl2sAIPVpCAq4gEph4VAs53OO+o34mtKYyRcakUbWr55zJCmz1DS8dFBWqQCmNc+FOzgroEHNE1RF0SxW5X2xK0NnNFa3YC1lCLXZa8AZ/xflz5Ey2pkMNOvjjl6TfvCBY08fNpYz0tZjhil8BhrzEoatb1i2KDjbkGPVUc2XXUiMgmSLsP1dbRVWHfFF9Ii3aBhoVi08Qsl1Oq26Q5lMQM69GB1frMFReAGZImhVO8899UyWBk4l3pOx0X7PeHZxI2QMlZdue0MhDy38KJtf/ma8XQ5DDEkNkDACV4z8kzGLJd79BiTBi4VaEQ5gXCXM/fVH9EQFvv7sYlgSe7INHsFJt7oKqGt4mKrEwbhcDlrDw0bocBPor1q04GlCPd1PAxXeAH8IgsY/+Nbpnov7AeYBe7C0gCnhFb/8k0Oslh66RxrtEkrTV7qLEYZYCXjqhgeSJXdeAZL0DIHA3iMJCHAwEGn6hk2PbTRDSmiwv8lVshpIuxzUUFZTsiDpYA2btgIoHtBy1/hcNoEIUOTsE6TbVqZ8htV2rqGyfYV8XcQkjUhz4KM7x7odWKk1HTqIXn4XDYGp+d/eiw0k3LeHlA/ZA8fmatPEASVProNa7xnZGXY/KthU39nzEEXVokYEes3whssd0EY/bQFtQq0W35CdPYE7ZW9z7uRFAfJ9WxOm1eyVJzVw1jwJy/zAxHm5Qm3XHwVO8D8WO+mQnUAbjsTFdk7YlbQY9TVysv1NBndZ7R5jb3ihpxI3pgURMyYAa5PgfDm4aEeBi/TvCveIWiF7MChutIvw+gy68VT1r1C+i2FolTKwUhWhBS7Mllql+RYimDN8rdsl5CR19IswMxN2h3DpUuARKA3LQOCvOIqZgG/ssuhESgnHH9WU2RjyBXwakO/2lJWjGt78WzfZnYxG2dlbWTvLu/4VhFMLDvqilY3dRKtsSnJGGEo3qSFvKPmCFMjbQDfLxxoKFTmGhDosMtUwYm0C0FSAE7Llv5yFZeobVo6k1VHs45vK721bN/DJWCsSCq8TrREAOnNeZPBfvV6nCByh/MIAIcUOPCIEkTtYP5u8WCLqivre0hW3gs0ukFiscmzjdjEf2aNuV1/mWvS7qQrfXOtDAzzaacqEmubQWCN0F3vEQrYz7TSHyhzjr7vzR1GwebR+NS+3kKTr1R+iCt0Nf4TjbUu+D0qolRy/eSkFJQp0CwbiJl92rFwYfCoaF7HjdWy6J9RNQQbCKQPjdOB+6HrG4wgntt9aho6LNP1kus3tKHHzltxQvmU22l/0tdNFlfhJWtNPoDFqUbJ+ZHj+BwyzqWtU00eGHBUSJ+Ko4BOFVNQc+rr+UlDTQTr0jGIj0ariAlDJwOF0kE6PBku917yyeCrC55alicToUrykEqp0y7XLKK/jcM1pRuzgZMyLL442Pj6GbFnSytV8pHOsRgoC+PBQ9UDFietucUOMwjdOdtMawaV5EmF/q70OcapKrek+jFqTUsRTG5Zr+Tyb29+QkCkmUDPT7N8MASH9bbs413MJ5VI3AO8rpVEarMHaYHLqrRKVt4sbqpC8woGVzdRObRY2l4JCOyEy2NGuMi5RbI9cOkpV9Cd1Nx7pNJKv9AxRMoCL/RLSc5juxg9+cxZQe8IF2v5ikHsYS1kBacz7TU0IeBvWcEDUsut5NysXqzNE1G2ALrEr8gxwopm+YLdGN785VLDQHRfSfUHY61aPftCtnom+iMB3S42Gs0CeBideOCGZi23qX13gLFbT80Z783KcxbqpwD2g8xZuqbkaUx03iTnLPsSFjZM92wApECjhsyHIKy/+s5WrYg5OQfAZBd1a59bEYAw==","page_age":"January 23, 2026"},{"type":"web_search_result","title":"Toronto (City, Canada) - Population Statistics, Charts, Map and Location","url":"https://www.citypopulation.de/en/canada/ontario/admin/_/3520005__toronto/","encrypted_content":"EucCCioIDhgCIiRlMmJmYTlmNS04ZDRjLTQ2MDYtODM5Ni1iOGUwY2U2YmNmMDgSDImTYfNUy2+B01UOmxoMgyKZIMK2sfAJXJoqIjAX67tYwt2nyRgkPsc6ddXwCMTeRs6oMhkZ7GVMwlqomyWX9HaCL+/Nfh9FF81fiPgq6gHjXnZYSHEVoOqqgdDp2sRpe7D+XeO1gdGZgVAl6YvEqGnUzDZmbN1Nxy+bBlKI/SWE/9nTorb+bI2Hr8MWTTay3/64lerBMkPpUm/6E0pcP8AJ59XoD2aAP0cA8BOxn4TO+rX/Nw8UbZfTuI8HtmjVuPE3ThFJgsO/qsu2AaVxeX3akBcyFOQTqIsBN4HlLzUmgcVOuwJzi6ycZvLxf+BLm65XX2FWQU/GTcDCp5bmeSGGSSDhoyGtxcafH6g0IV3LtgVV0OHcuQBT98vosbbww8nfQBHaizJjkL1rxZ3SpTim2sb6AGsppdMYAw==","page_age":null}],"caller":{"type":"direct"}}              }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":1               }
+
+event: content_block_start
+data: {"type":"content_block_start","index":2,"content_block":{"type":"text","text":""}       }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"Based"}       }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":" on the search results, I can provide you with information about Toronto's current population in 2026. The estimates vary depending on whether"}            }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":" you're looking at the city proper or the broader metropolitan area:\n\n**City of Toronto (city"}       }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":" proper) in 2026:**\n- "} }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":2        }
+
+event: content_block_start
+data: {"type":"content_block_start","index":3,"content_block":{"citations":[],"type":"text","text":""}             }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":3,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","cited_text":"Toronto is a city located in Ontario, Canada with a current estimated population of 3,370,011. ","url":"https://worldpopulationreview.com/canadian-cities/toronto","title":"Toronto Population 2026","encrypted_index":"Eo8BCioIDhgCIiRlMmJmYTlmNS04ZDRjLTQ2MDYtODM5Ni1iOGUwY2U2YmNmMDgSDL1iGalXJYnIMOkHgRoMOCou0BhFNILDf0zsIjB7plKi9lhEhzJkJjSzSimrYEmJ9Oj/Y70XmZZziKU7VzKVz807KgCAZyCX5QQpxdEqEwgB2t8K5VWvq5cZe46trSFHFWsYBA=="}}      }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":3,"delta":{"type":"text_delta","text":"Toronto has a current estimated population of 3"}   }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":3,"delta":{"type":"text_delta","text":",370,011"}       }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":3  }
+
+event: content_block_start
+data: {"type":"content_block_start","index":4,"content_block":{"type":"text","text":""}     }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"text_delta","text":"\n- "}        }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":4       }
+
+event: content_block_start
+data: {"type":"content_block_start","index":5,"content_block":{"citations":[],"type":"text","text":""}      }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":5,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","cited_text":"Based on our research, Toronto population will reach 2,956,120 (around 2.96 million) by end of 2026.The calculation is based on the average growth rat...","url":"https://www.canadapopulation.net/toronto-population/","title":"Toronto Population 2026 ❤️ | Canada Population","encrypted_index":"Eo8BCioIDhgCIiRlMmJmYTlmNS04ZDRjLTQ2MDYtODM5Ni1iOGUwY2U2YmNmMDgSDDuUG0Y/swBJ82DNaRoMghL9AIK++CLsQNK3IjBJ0Q3Y1nV57swfBo+ZmVa7Fw7WdzJ12ICCzP1EuQJSCz87IY18Y1NKDcUJGNXUzHUqE6lLKj0OZ77ADNIYXRJMOderBz0YBA=="}}               }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":5,"delta":{"type":"text_delta","text":"Based on research, Toronto population will reach 2,956,120 (around 2"} }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":5,"delta":{"type":"text_delta","text":".96 million) by end of 2026"}      }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":5   }
+
+event: content_block_start
+data: {"type":"content_block_start","index":6,"content_block":{"type":"text","text":""} }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":6,"delta":{"type":"text_delta","text":"\n- "}   }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":6}
+
+event: content_block_start
+data: {"type":"content_block_start","index":7,"content_block":{"citations":[],"type":"text","text":""}       }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":7,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","cited_text":"The population of Toronto in 2026 is estimated to 2,857,140 inhabitants. ","url":"https://worldcitiesexplorer.com/en/cities/toronto/","title":"Toronto Population 2026 - Map, Facts & Demographics","encrypted_index":"Eo8BCioIDhgCIiRlMmJmYTlmNS04ZDRjLTQ2MDYtODM5Ni1iOGUwY2U2YmNmMDgSDPYlHywzBREoUS1VeRoMpK1LqcrB1wy7RiNZIjAckZzLMHS6kYONK0f8XNT+j7wtqLCFRqFg0GH4iaEATw3g6BtYMWdiw+OQUXf1hQYqE1xLcLybQ+9asnxOFqJAL6yypc8YBA=="}}               }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":7,"delta":{"type":"text_delta","text":"The population of Toronto in 2026 is estimated to 2,857,140 inhabitants"}       }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":7        }
+
+event: content_block_start
+data: {"type":"content_block_start","index":8,"content_block":{"type":"text","text":""}       }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":"\n- "}     }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":8              }
+
+event: content_block_start
+data: {"type":"content_block_start","index":9,"content_block":{"citations":[],"type":"text","text":""}   }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":9,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","cited_text":"The population of Toronto, Canada is 2 503 335 for 2026. ","url":"https://chislennost.com/en/ca/population_of_toronto_6667.html","title":"Toronto Population 2026 - Population Stat","encrypted_index":"Eo8BCioIDhgCIiRlMmJmYTlmNS04ZDRjLTQ2MDYtODM5Ni1iOGUwY2U2YmNmMDgSDBnka1fh+xsyaKTOthoMlmgdSOHth96wGErCIjDBQ7GclZH7RB+t9pbcbSU9HXCdcHcZWVtTYAeWBlVB12zcqZjBwsmnJpFFp/JTUzkqE9waf2bn+wSW3/cfSQfiwv2X3LsYBA=="}}  }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":9,"delta":{"type":"text_delta","text":"The population of Toronto, Canada is 2,"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":9,"delta":{"type":"text_delta","text":"503,335 for 2026"}            }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":9         }
+
+event: content_block_start
+data: {"type":"content_block_start","index":10,"content_block":{"type":"text","text":""}          }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":10,"delta":{"type":"text_delta","text":"\n\n**Greater Toronto Area (metropolitan"}           }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":10,"delta":{"type":"text_delta","text":" area) in 2026:**\n- "}               }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":10          }
+
+event: content_block_start
+data: {"type":"content_block_start","index":11,"content_block":{"citations":[],"type":"text","text":""}      }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":11,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","cited_text":"As of 2025, the Toronto census metropolitan area had an estimated population of 7,106,379. ","url":"https://en.wikipedia.org/wiki/Toronto","title":"Toronto - Wikipedia","encrypted_index":"Eo8BCioIDhgCIiRlMmJmYTlmNS04ZDRjLTQ2MDYtODM5Ni1iOGUwY2U2YmNmMDgSDDwHnL4LHTWv4XebhxoMFPdwR0YBqJeXByUgIjAcCwUuS6yezWH+zggH/LYwWmCnrM/Utflm+LgUVV+lU3FctMhgJaEhPNO9u0XLSWoqE6clzOFiGmGU7ZFwPiR8oCe8CkQYBA=="}}    }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":11,"delta":{"type":"text_delta","text":"As of 2025, the Toronto census"}           }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":11,"delta":{"type":"text_delta","text":" metropolitan area had an estimated population of 7,106,379"}           }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":11       }
+
+event: content_block_start
+data: {"type":"content_block_start","index":12,"content_block":{"type":"text","text":""} }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":12,"delta":{"type":"text_delta","text":"\n- "}         }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":12 }
+
+event: content_block_start
+data: {"type":"content_block_start","index":13,"content_block":{"citations":[],"type":"text","text":""}         }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":13,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","cited_text":"The metro area population of Toronto in 2025 was 6,491,000, a 0.93% increase from 2024. ","url":"https://www.macrotrends.net/global-metrics/cities/20402/toronto/population","title":"Toronto, Canada Metro Area Population (1950-2026) | MacroTrends","encrypted_index":"Eo8BCioIDhgCIiRlMmJmYTlmNS04ZDRjLTQ2MDYtODM5Ni1iOGUwY2U2YmNmMDgSDL+CUp7zpDfco0CqWRoMYrJsiMNIWM4i4vaOIjCPz2VUxGMZ4Pi+SCym+2VdLYyJkmVqqYOd4rYtuvtO0a6nUvx/cKsZTUrUSIuBtX0qE38UuOVddmTS9JoOR6twNeftbjAYBA=="}}      }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":13,"delta":{"type":"text_delta","text":"The metro"}           }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":13,"delta":{"type":"text_delta","text":" area population of Toronto in 2025 was 6,491,000"}        }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":13     }
+
+event: content_block_start
+data: {"type":"content_block_start","index":14,"content_block":{"type":"text","text":""}    }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":14,"delta":{"type":"text_delta","text":"\n\nThere"}      }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":14,"delta":{"type":"text_delta","text":"'s some variation in the estimates, which is common with population projections. The city proper appears"}  }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":14,"delta":{"type":"text_delta","text":" to have a population of approximately **2.5 to 3.4"}              }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":14,"delta":{"type":"text_delta","text":" million people** in 2026, while the broader metropolitan area has around **6.5 to 7.1 million people**. The variation"}               }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":14,"delta":{"type":"text_delta","text":" in estimates reflects different methodologies and data sources used by various"}   }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":14,"delta":{"type":"text_delta","text":" organizations for population projections.\n\nFor context, "}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":14  }
+
+event: content_block_start
+data: {"type":"content_block_start","index":15,"content_block":{"citations":[],"type":"text","text":""}  }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":15,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","cited_text":"The population was recorded at 2,917,666 in the 2021 Canadian Census, and was previously recorded at 2,822,610 in the 2016 census. ","url":"https://worldpopulationreview.com/canadian-cities/toronto","title":"Toronto Population 2026","encrypted_index":"Eo8BCioIDhgCIiRlMmJmYTlmNS04ZDRjLTQ2MDYtODM5Ni1iOGUwY2U2YmNmMDgSDAt93JLy7EitkspD9BoMJrnxIsPj1yn3ySOcIjBkYNMXlmkUDIbhtxfztxQNu3jGSkg9bE49r5gqmEsrJCuMej4PMYOMXPr3tvN1RyQqE6kD5gMpmayZW5vI6HEoEpdLu9wYBA=="}}         }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":15,"delta":{"type":"text_delta","text":"the"}              }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":15,"delta":{"type":"text_delta","text":" population was recorded at 2,917,666 in the 2021 Canadian Census"}   }
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":15     }
+
+event: content_block_start
+data: {"type":"content_block_start","index":16,"content_block":{"type":"text","text":""}            }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":16,"delta":{"type":"text_delta","text":", showing"}    }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":16,"delta":{"type":"text_delta","text":" continued growth in the city."}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":16 }
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null,"stop_details":null},"usage":{"input_tokens":13031,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":500,"server_tool_use":{"web_search_requests":1,"web_fetch_requests":0}}        }
+
+event: message_stop
+data: {"type":"message_stop"       }
+
