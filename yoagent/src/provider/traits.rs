@@ -73,6 +73,13 @@ pub trait StreamProvider: Send + Sync {
     ) -> Result<Message, ProviderError>;
 }
 
+fn format_rate_limited(retry_after_ms: &Option<u64>) -> String {
+    match retry_after_ms {
+        Some(ms) => format!("Rate limited, retry after {ms}ms"),
+        None => "Rate limited (no retry-after)".to_string(),
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ProviderError {
     #[error("API error: {0}")]
@@ -81,7 +88,7 @@ pub enum ProviderError {
     Network(String),
     #[error("Auth error: {0}")]
     Auth(String),
-    #[error("Rate limited, retry after {retry_after_ms:?}ms")]
+    #[error("{}", format_rate_limited(retry_after_ms))]
     RateLimited { retry_after_ms: Option<u64> },
     #[error("Context overflow: {message}")]
     ContextOverflow { message: String },
@@ -291,5 +298,29 @@ mod tests {
         assert!(!is_context_overflow_message("invalid api key"));
         assert!(!is_context_overflow_message("internal server error"));
         assert!(!is_context_overflow_message(""));
+    }
+
+    #[test]
+    fn rate_limited_display() {
+        let with = ProviderError::RateLimited {
+            retry_after_ms: Some(2000),
+        }
+        .to_string();
+        assert_eq!(with, "Rate limited, retry after 2000ms");
+
+        let without = ProviderError::RateLimited {
+            retry_after_ms: None,
+        }
+        .to_string();
+        assert!(
+            !without.contains("None"),
+            "rendered None in display: {}",
+            without
+        );
+        assert!(
+            without.starts_with("Rate limited"),
+            "missing prefix: {}",
+            without
+        );
     }
 }
