@@ -365,6 +365,25 @@ impl ModelConfig {
         }
     }
 
+    /// Create a new OpenRouter model config.
+    ///
+    /// Models: `openai/gpt-4o-mini`, `anthropic/claude-3.5-sonnet`, etc.
+    pub fn openrouter(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            api: ApiProtocol::OpenAiCompletions,
+            provider: "openrouter".into(),
+            base_url: "https://openrouter.ai/api/v1".into(),
+            reasoning: false,
+            context_window: 128_000,
+            max_tokens: 4096,
+            cost: CostConfig::default(),
+            headers: HashMap::new(),
+            compat: Some(OpenAiCompat::openrouter()),
+        }
+    }
+
     /// Create a new Mistral model config.
     ///
     /// Models: `mistral-large-latest`, `mistral-small-latest`, etc.

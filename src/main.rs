@@ -41,7 +41,7 @@ impl From<ThinkingArg> for ThinkingLevel {
 #[derive(Parser)]
 #[command(about = "Headless agent harness. JSONL in, JSONL out.", version)]
 struct Cli {
-    /// Provider: anthropic, openai, gemini, ollama
+    /// Provider: anthropic, openai, gemini, openrouter, ollama
     #[arg(long)]
     provider: Option<String>,
 
@@ -363,6 +363,14 @@ const PROVIDERS: &[(&str, ProviderConfig)] = &[
             dashboard: "https://aistudio.google.com/apikey",
         },
     ),
+    (
+        "openrouter",
+        ProviderConfig {
+            key_var: "OPENROUTER_API_KEY",
+            models_url: "https://openrouter.ai/api/v1/models",
+            dashboard: "https://openrouter.ai/keys",
+        },
+    ),
 ];
 
 fn provider_config(provider: &str) -> &'static ProviderConfig {
@@ -480,13 +488,19 @@ fn normalize_model(provider: &str, raw: &serde_json::Value) -> Option<serde_json
                 out.insert("capabilities".into(), caps.clone());
             }
         }
-        "openai" | "ollama" => {
+        "openai" | "ollama" | "openrouter" => {
             out.insert("id".into(), raw.get("id")?.clone());
             if let Some(ts) = raw.get("created").and_then(|v| v.as_i64()) {
                 let iso = chrono::DateTime::from_timestamp(ts, 0)
                     .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
                     .unwrap_or_default();
                 out.insert("created".into(), serde_json::Value::String(iso));
+            }
+            if let Some(v) = raw.get("name") {
+                out.insert("name".into(), v.clone());
+            }
+            if let Some(v) = raw.get("context_length") {
+                out.insert("context_length".into(), v.clone());
             }
         }
         "gemini" => {
@@ -579,6 +593,8 @@ async fn main() {
         "gemini" => {
             Agent::new(GoogleProvider).with_model_config(ModelConfig::google(&model, &model))
         }
+        "openrouter" => Agent::new(OpenAiCompatProvider)
+            .with_model_config(ModelConfig::openrouter(&model, &model)),
         "ollama" => {
             let base = format!("{}/v1", ollama_base);
             let mut config = ModelConfig::local(&base, &model);
