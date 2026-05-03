@@ -12,7 +12,11 @@ use nu_parser::parse;
 use nu_plugin_engine::{GetPlugin, PluginDeclaration};
 use nu_protocol::debugger::WithoutDebug;
 use nu_protocol::engine::{EngineState, Redirection, Stack, StateWorkingSet};
-use nu_protocol::{OutDest, PipelineData, PluginIdentity, RegisteredPlugin, Span, Type, Value};
+use nu_protocol::shell_error::generic::GenericError;
+use nu_protocol::{
+    format_cli_error, OutDest, PipelineData, PluginIdentity, RegisteredPlugin, ShellError, Span,
+    Type, Value,
+};
 
 use yoagent::types::*;
 
@@ -22,15 +26,23 @@ static NU_CONFIG: OnceLock<NuConfig> = OnceLock::new();
 struct NuConfig {
     plugins: Vec<PathBuf>,
     include_paths: Vec<PathBuf>,
+    config: Option<PathBuf>,
 }
 
 /// Call once at startup (before any tool execution) to register plugin
-/// paths and include paths for the embedded Nushell engine.
-pub fn configure(plugins: Vec<PathBuf>, include_paths: Vec<PathBuf>) {
+/// paths, include paths, and an init script for the embedded Nushell
+/// engine. If a config script is supplied, the engine is initialised
+/// eagerly so parse/eval errors surface at startup.
+pub fn configure(plugins: Vec<PathBuf>, include_paths: Vec<PathBuf>, config: Option<PathBuf>) {
+    let eager = config.is_some();
     let _ = NU_CONFIG.set(NuConfig {
         plugins,
         include_paths,
+        config,
     });
+    if eager {
+        let _ = engine_state();
+    }
 }
 
 fn load_plugin(engine_state: &mut EngineState, path: &Path) -> Result<(), String> {
@@ -99,6 +111,53 @@ fn set_lib_dirs(engine_state: &mut EngineState, paths: &[PathBuf]) -> Result<(),
     Ok(())
 }
 
+fn run_config_script(engine_state: &mut EngineState, path: &Path) -> Result<(), String> {
+    let contents = std::fs::read(path)
+        .map_err(|e| format!("Failed to read config {}: {e}", path.display()))?;
+    let fname = path.to_string_lossy().into_owned();
+
+    let mut working_set = StateWorkingSet::new(engine_state);
+    let block = parse(&mut working_set, Some(&fname), &contents, false);
+
+    if let Some(err) = working_set.parse_errors.first() {
+        let shell_error = ShellError::Generic(GenericError::new(
+            "Parse error in config",
+            format!("{err:?}"),
+            err.span(),
+        ));
+        return Err(format_cli_error(None, &working_set, &shell_error, None));
+    }
+    if let Some(err) = working_set.compile_errors.first() {
+        let shell_error = ShellError::Generic(GenericError::new_internal(
+            format!("Compile error in config: {err}"),
+            "",
+        ));
+        return Err(format_cli_error(None, &working_set, &shell_error, None));
+    }
+
+    engine_state
+        .merge_delta(working_set.render())
+        .map_err(|e| format!("Merge error: {e}"))?;
+
+    let mut stack = Stack::new();
+    eval_block_with_early_return::<WithoutDebug>(
+        engine_state,
+        &mut stack,
+        &block,
+        PipelineData::empty(),
+    )
+    .map_err(|err| {
+        let working_set = StateWorkingSet::new(engine_state);
+        format_cli_error(None, &working_set, &err, None)
+    })?;
+
+    engine_state
+        .merge_env(&mut stack)
+        .map_err(|e| format!("Failed to merge config env: {e}"))?;
+
+    Ok(())
+}
+
 fn engine_state() -> &'static EngineState {
     static ENGINE: OnceLock<EngineState> = OnceLock::new();
     ENGINE.get_or_init(|| {
@@ -126,6 +185,16 @@ fn engine_state() -> &'static EngineState {
         if let Some(cfg) = config {
             if let Err(e) = set_lib_dirs(&mut engine_state, &cfg.include_paths) {
                 eprintln!("warning: failed to set include paths: {e}");
+            }
+        }
+
+        // Run config script (fatal on error -- caught at startup)
+        if let Some(cfg) = config {
+            if let Some(path) = &cfg.config {
+                if let Err(e) = run_config_script(&mut engine_state, path) {
+                    eprintln!("config error:\n{e}");
+                    std::process::exit(1);
+                }
             }
         }
 

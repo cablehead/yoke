@@ -73,6 +73,11 @@ struct Cli {
     #[arg(short = 'I', long = "include-path")]
     include_paths: Vec<std::path::PathBuf>,
 
+    /// Nushell init script run once at startup. Useful for `use module`,
+    /// `def`, `hide`, etc. Errors are fatal and surface immediately.
+    #[arg(long)]
+    config: Option<std::path::PathBuf>,
+
     /// Extended thinking budget: off, minimal, low, medium, high (default: off)
     #[arg(long, value_enum, default_value_t = ThinkingArg::Off)]
     thinking: ThinkingArg,
@@ -533,7 +538,7 @@ async fn main() {
     let cli = Cli::parse();
 
     // Configure the embedded Nushell engine with plugins and include paths
-    nu_tool::configure(cli.plugins, cli.include_paths);
+    nu_tool::configure(cli.plugins, cli.include_paths, cli.config);
 
     // No provider: list available providers and exit
     let provider = match cli.provider {

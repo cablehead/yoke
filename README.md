@@ -203,6 +203,24 @@ yoke --provider gemini --model gemini-2.5-flash --tools nu \
 Plugin names are included in the tool description so the LLM knows
 they're available and can discover subcommands via `help`.
 
+Use `--config <file.nu>` to run a Nushell script once at startup. The script
+runs against the shared engine state, so any `use`, `def`, `hide`, or env
+mutations persist across every nu tool call:
+
+```nushell
+# init.nu
+use mymod
+def my-favorite-number [] { 42 }
+hide rm
+
+yoke --provider gemini --model gemini-2.5-flash --tools nu \
+  -I ./lib --config ./init.nu \
+  "what is my favorite number?"
+```
+
+Parse and eval errors in the config are fatal and reported at startup with
+file path and span, so misconfigurations are caught immediately.
+
 ### Web search
 
 Web search is a provider-side capability:
