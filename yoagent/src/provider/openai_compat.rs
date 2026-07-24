@@ -191,6 +191,27 @@ impl StreamProvider for OpenAiCompatProvider {
             }
         }
 
+        // Some models (e.g. Moonshot Kimi) stream tool calls as inline
+        // special-token text in the content field instead of the structured
+        // `tool_calls` field. When the structured path yielded nothing, try to
+        // recover them from the accumulated text.
+        if tool_call_buffers.is_empty() {
+            let mut recovered = false;
+            for c in content.iter_mut() {
+                if let Content::Text { text } = c {
+                    if let Some((cleaned, buffers)) = parse_inline_tool_calls(text) {
+                        *text = cleaned;
+                        tool_call_buffers = buffers;
+                        recovered = true;
+                        break;
+                    }
+                }
+            }
+            if recovered {
+                content.retain(|c| !matches!(c, Content::Text { text } if text.is_empty()));
+            }
+        }
+
         // Finalize tool calls
         for buf in &tool_call_buffers {
             let args = serde_json::from_str(&buf.arguments)
@@ -232,6 +253,73 @@ struct ToolCallBuffer {
     id: String,
     name: String,
     arguments: String,
+}
+
+/// Recover tool calls that a model emitted as inline special-token text rather
+/// than in the structured `tool_calls` field. Moonshot Kimi models do this over
+/// providers (e.g. OpenRouter) that pass the raw token stream through as content.
+///
+/// Expected shape:
+/// ```text
+/// <|tool_calls_section_begin|>
+///   <|tool_call_begin|>functions.NAME:IDX<|tool_call_argument_begin|>{JSON}<|tool_call_end|>
+///   ...
+/// <|tool_calls_section_end|>
+/// ```
+///
+/// The id (`functions.NAME:IDX`) is preserved verbatim so tool results correlate;
+/// the tool name is the segment between the last `.` and `:`. Returns the text
+/// with the token section removed, plus the parsed buffers, or `None` if no
+/// section is present.
+fn parse_inline_tool_calls(text: &str) -> Option<(String, Vec<ToolCallBuffer>)> {
+    const SECTION_BEGIN: &str = "<|tool_calls_section_begin|>";
+    const SECTION_END: &str = "<|tool_calls_section_end|>";
+    const CALL_BEGIN: &str = "<|tool_call_begin|>";
+    const ARG_BEGIN: &str = "<|tool_call_argument_begin|>";
+    const CALL_END: &str = "<|tool_call_end|>";
+
+    let sec_start = text.find(SECTION_BEGIN)?;
+    // The closing token may be absent if the stream was truncated mid-section;
+    // in that case treat everything after the opener as the section body.
+    let (section, after) = match text[sec_start..].find(SECTION_END) {
+        Some(rel) => {
+            let end = sec_start + rel + SECTION_END.len();
+            (&text[sec_start..end], &text[end..])
+        }
+        None => (&text[sec_start..], ""),
+    };
+
+    let mut buffers = Vec::new();
+    let mut rest = section;
+    while let Some(cb) = rest.find(CALL_BEGIN) {
+        let seg = &rest[cb + CALL_BEGIN.len()..];
+        let Some(ab) = seg.find(ARG_BEGIN) else { break };
+        let id_raw = seg[..ab].trim();
+        let args_seg = &seg[ab + ARG_BEGIN.len()..];
+        let (args, next) = match args_seg.find(CALL_END) {
+            Some(ce) => (args_seg[..ce].trim(), &args_seg[ce + CALL_END.len()..]),
+            None => (args_seg.trim(), ""),
+        };
+        let id_head = id_raw.rsplit_once(':').map(|(h, _)| h).unwrap_or(id_raw);
+        let name = id_head
+            .rsplit_once('.')
+            .map(|(_, n)| n)
+            .unwrap_or(id_head)
+            .to_string();
+        buffers.push(ToolCallBuffer {
+            id: id_raw.to_string(),
+            name,
+            arguments: args.to_string(),
+        });
+        rest = next;
+    }
+
+    if buffers.is_empty() {
+        return None;
+    }
+
+    let cleaned = format!("{}{}", &text[..sec_start], after);
+    Some((cleaned.trim().to_string(), buffers))
 }
 
 fn build_request_body(
@@ -667,5 +755,61 @@ mod tests {
         let tool_msg = msgs.last().unwrap();
         // Text-only: content should be a plain string
         assert_eq!(tool_msg["content"], "hello");
+    }
+
+    #[test]
+    fn test_parse_inline_tool_calls_kimi() {
+        let text = "Summary of progress.\n\n\
+            <|tool_calls_section_begin|>\
+            <|tool_call_begin|>functions.bash:16<|tool_call_argument_begin|>{\"command\": \"ls -la\"}<|tool_call_end|>\
+            <|tool_call_begin|>functions.read_file:17<|tool_call_argument_begin|>{\"path\": \"a.txt\"}<|tool_call_end|>\
+            <|tool_calls_section_end|>";
+        let (cleaned, buffers) = parse_inline_tool_calls(text).expect("should parse");
+        assert_eq!(cleaned, "Summary of progress.");
+        assert_eq!(buffers.len(), 2);
+        assert_eq!(buffers[0].id, "functions.bash:16");
+        assert_eq!(buffers[0].name, "bash");
+        assert_eq!(buffers[0].arguments, "{\"command\": \"ls -la\"}");
+        assert_eq!(buffers[1].id, "functions.read_file:17");
+        assert_eq!(buffers[1].name, "read_file");
+        assert_eq!(buffers[1].arguments, "{\"path\": \"a.txt\"}");
+    }
+
+    #[test]
+    fn test_parse_inline_tool_calls_truncated_section() {
+        // Stream cut off before the closing section token.
+        let text = "doing work\
+            <|tool_calls_section_begin|>\
+            <|tool_call_begin|>functions.bash:1<|tool_call_argument_begin|>{\"command\": \"pwd\"}<|tool_call_end|>";
+        let (cleaned, buffers) = parse_inline_tool_calls(text).expect("should parse");
+        assert_eq!(cleaned, "doing work");
+        assert_eq!(buffers.len(), 1);
+        assert_eq!(buffers[0].name, "bash");
+    }
+
+    #[test]
+    fn test_parse_inline_tool_calls_none_for_plain_text() {
+        assert!(parse_inline_tool_calls("just a normal answer, no tools").is_none());
+    }
+
+    #[test]
+    fn test_parse_inline_tool_calls_real_kimi_capture() {
+        // Verbatim assistant text captured from a live moonshotai/kimi-k2.7-code
+        // turn over OpenRouter, where the tool calls leaked as inline tokens.
+        let text = include_str!("testdata/kimi_inline_tool_calls.txt");
+        let (cleaned, buffers) = parse_inline_tool_calls(text).expect("should parse");
+        // Prose preamble survives, token section is stripped.
+        assert!(cleaned.starts_with("Summary so far:"));
+        assert!(!cleaned.contains("<|tool_call"));
+        assert_eq!(buffers.len(), 2);
+        assert_eq!(buffers[0].id, "functions.bash:16");
+        assert_eq!(buffers[0].name, "bash");
+        assert_eq!(buffers[1].id, "functions.bash:17");
+        assert_eq!(buffers[1].name, "bash");
+        // Arguments round-trip as valid JSON with the expected command key.
+        for buf in &buffers {
+            let v: serde_json::Value = serde_json::from_str(&buf.arguments).unwrap();
+            assert!(v.get("command").and_then(|c| c.as_str()).is_some());
+        }
     }
 }
