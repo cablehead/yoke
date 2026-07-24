@@ -194,28 +194,26 @@ def lanes-tree [head: string] {
   let leaves = if ($head | is-empty) { [] } else { leaves-for $session }
   if ($leaves | is-empty) { return (DIV {class: "tree"} "") }
   let current_ids = thread $head | get id
-  # The current lane is the spine (column 0), holding the shared trunk at full single-column
-  # width. Peers follow; each turn is placed in the leftmost lane that has it, so a shared node
-  # lands on the spine and peers only draw the nodes where they branch off it.
-  let current_leaf = $leaves | where {|l| $head in (thread $l.id | get id) } | get -i 0 | default ($leaves | first)
-  let others = $leaves | where {|l| $l.id != $current_leaf.id } | sort-by {|l| thread $l.id | get id | str join "/" }
-  let ordered = ([$current_leaf] ++ $others) | each {|l| {leaf: $l, path: (thread $l.id)} }
-  let n = $ordered | length
-  # Every (node, column) placement, folded to one cell per node in its leftmost column.
-  let cells = $ordered | enumerate | each {|col|
+  # Stable lane order: leaves in tree (DFS) order by creation, independent of which lane is
+  # current -- a lane keeps its column as you navigate, so you never get reshuffled. Each node
+  # sits in the leftmost lane that has it, so the shared trunk runs down the left and peers
+  # branch off where they diverge. The current path is highlighted and scrolled into view
+  # wherever it falls (sometimes left, sometimes right, but always the same place for a lane).
+  let ordered = $leaves | sort-by {|l| thread $l.id | get id | str join "/" } | each {|l| {leaf: $l, path: (thread $l.id)} }
+  let ncols = $ordered | length
+  let placed = $ordered | enumerate | each {|col|
     $col.item.path | enumerate | each {|d| {id: $d.item.id, frame: $d.item, depth: $d.index, col: $col.index} }
   } | flatten | group-by id | items {|id grp|
     {id: $id, frame: ($grp | first | get frame), depth: ($grp | first | get depth), col: ($grp | get col | math min)}
-  } | each {|nd|
+  }
+  let cells = $placed | each {|nd|
     let is_current = ($nd.id in $current_ids)
     let skin = if $is_current { "outline: 2px solid #1a4b8c; outline-offset: 2px; border-radius: 0.5rem;" } else { "" }
     let place = "grid-row: " + (($nd.depth + 1) | into string) + "; grid-column: " + (($nd.col + 1) | into string) + ";"
-    DIV {
-      style: ("min-width: 0; cursor: pointer; " + $place + $skin),
-      "data-on:click": ("$head = '" + $nd.id + "'; $_zoom = false; @get('/load')")
-    } (render-run (turn-lines $nd.frame))
+    let attrs = {style: ("min-width: 0; cursor: pointer; " + $place + $skin), "data-on:click": ("$head = '" + $nd.id + "'; $_zoom = false; @get('/load')")}
+    DIV (if $nd.id == $head { $attrs | merge {id: "lane-current"} } else { $attrs }) (render-run (turn-lines $nd.frame))
   }
-  DIV {class: "tree", id: "lanes-tree", style: ("grid-template-columns: repeat(" + ($n | into string) + ", minmax(0, 24rem));")} $cells
+  DIV {class: "tree", id: "lanes-tree", style: ("grid-template-columns: repeat(" + ($ncols | into string) + ", minmax(0, 24rem));")} $cells
 }
 
 # The multi-lane view IS the main view. The reading component (cards + composer) is the current
@@ -301,7 +299,7 @@ def page [resume: string] {
             (H1 {style: "font-size: 1rem; margin: 0;"} "yoke")
             (A {href: "/"} "new")
             (A {href: "/runs"} "history")
-            (BUTTON {style: "border: 0; background: transparent; padding: 0; color: #1a4b8c; cursor: pointer;", "data-on:click": "$_zoom = !$_zoom"} "lanes")
+            (BUTTON {style: "border: 0; background: transparent; padding: 0; color: #1a4b8c; cursor: pointer;", "data-on:click": "$_zoom = !$_zoom; $_zoom && setTimeout(() => document.getElementById('lane-current')?.scrollIntoView({inline: 'center', block: 'center'}), 60)"} "lanes")
           ])
           (HEADER {class: "pane-header"} "turns")
           (DIV {id: "thread-toc", style: "overflow-y: auto; flex: 1;"} (thread-toc $head))
