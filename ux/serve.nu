@@ -60,6 +60,15 @@ def styles [] {
       td { padding: 0.3rem 0.5rem; }
       #output { flex: 1; overflow-y: auto; padding: 1rem 0; }
       @keyframes blink { 50% { opacity: 0; } }
+      /* multi-lane view: the reading lane (.focus) is the main view; peers pull into
+         view when the row is .pulled. Peers stay in the DOM so it is a pure CSS zoom. */
+      .lane-row { display: flex; height: 100%; overflow-x: auto; }
+      .lane-row > .focus { flex: none; width: 100%; max-width: 48rem; margin: 0 auto; display: flex; flex-direction: column; min-height: 0; padding: 0 1rem; transition: max-width .2s ease, margin .2s ease; }
+      .lane-row > .peer { flex: none; width: 0; overflow: hidden; opacity: 0; cursor: pointer; white-space: nowrap; align-self: center; border: 1px solid #eee; border-radius: 0.5rem; transition: width .2s ease, opacity .2s ease, padding .2s ease; }
+      .lane-row > .peer:hover { background: #f4f4f4; }
+      .lane-row.pulled { gap: 0.75rem; padding: 1rem 0.75rem; align-items: flex-start; }
+      .lane-row.pulled > .focus { max-width: 34rem; margin: 0; }
+      .lane-row.pulled > .peer { width: 13rem; opacity: 0.85; padding: 0.75rem; }
       /* skins: appearance only */
       .pane-header { padding: 0.5rem 0.75rem; font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 0.05em; }
       .item { border: 0; border-bottom: 1px solid #f0f0f0; cursor: pointer; background: transparent; color: inherit; }
@@ -172,39 +181,37 @@ def leaves-for [session: any] {
   $frames | where {|f| $f.id not-in $parents }
 }
 
-# The reading pane zoomed out in place: every leaf tip is a lane. The focused lane renders
-# full with its divergent tail bold; peers flank it dimmed and truncated. Turns shared with
-# the current thread are the trunk (grey). Click a peer to focus it, the focused lane to open
-# it. The arrow-key handler lives only in this view, so it exists only while zoomed out.
-def lanes-view [head: string, leaves: list, focus: int] {
-  let current_ids = thread $head | get id
-  let lanes = $leaves | enumerate | each {|x|
-    let leaf = $x.item
-    let is_focus = ($x.index == $focus)
-    let turns = thread $leaf.id | each {|f|
-      let shared = ($f.id in $current_ids)
-      let label = turn-label $f
-      let preview = if $is_focus or ($label | str length) <= 22 { $label } else { ($label | str substring 0..22) + "..." }
-      let clip = if $is_focus { "" } else { "white-space: nowrap; overflow: hidden; text-overflow: ellipsis; " }
-      let color = if $shared { "color: #bbb;" } else { "color: #1a1a1a; font-weight: 600;" }
-      DIV {style: ("padding: 0.2rem 0; " + $clip + $color)} $preview
-    }
-    let click = if $is_focus {
-      ("$head = '" + $leaf.id + "'; @get('/load')")
-    } else {
-      ("$_lane = " + ($x.index | into string) + "; @get('/lanes')")
-    }
-    let skin = if $is_focus { "width: 26rem; border: 1px solid #1a4b8c; background: #f4f8fe;" } else { "width: 11rem; border: 1px solid #eee; opacity: 0.7;" }
-    DIV {style: ("flex: none; cursor: pointer; border-radius: 0.5rem; padding: 0.75rem 1rem; " + $skin), "data-on:click": $click} $turns
+# One compact peer lane: a sibling branch shown as its turn labels, trunk grey and divergent
+# tail bold. Clicking it selects that branch -- it becomes the reading lane and pulls back in.
+def peer-lane [leaf: record, current_ids: list] {
+  let turns = thread $leaf.id | each {|f|
+    let shared = ($f.id in $current_ids)
+    let label = turn-label $f
+    let preview = if ($label | str length) > 24 { ($label | str substring 0..24) + "..." } else { $label }
+    DIV {style: ("padding: 0.2rem 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; " + (if $shared { "color: #bbb;" } else { "color: #1a1a1a; font-weight: 600;" }))} $preview
   }
-  [
-    (DIV {style: "flex: 1; min-height: 0; display: flex; gap: 0.75rem; overflow-x: auto; align-items: flex-start; justify-content: center; padding: 1rem 0;"} $lanes)
-    (DIV {
-      id: "lane-keys"
-      "data-on:keydown__window": "if(evt.key==='ArrowLeft'){$_lane=Math.max(0,$_lane-1);@get('/lanes')}else if(evt.key==='ArrowRight'){$_lane=$_lane+1;@get('/lanes')}else if(evt.key==='Enter'){$head=$_laneHead;@get('/load')}else if(evt.key==='Escape'){@get('/load')}"
-      style: "position: sticky; bottom: 0; background: #fff; border-top: 1px solid #eee; padding: 0.75rem 0; color: #999; font-size: 0.8125rem; text-align: center;"
-    } "left / right switch lanes    enter open    esc back")
-  ]
+  DIV {class: "peer", "data-on:click": ("$head = '" + $leaf.id + "'; $_zoom = false; @get('/load')")} $turns
+}
+
+# The multi-lane view IS the main view. The current lane holds the live reading component
+# (cards + composer); its sibling leaves render as compact peer lanes beside it. Pulling away
+# ($_zoom, a client-side CSS class) shrinks the reading lane so the peers come into view;
+# clicking a peer selects it. Peers stay in the DOM, so the pull-away is a pure CSS transition.
+def lanes-view [head: string] {
+  let session = try { (.get $head).meta?.session? } catch { null }
+  let leaves = if ($head | is-empty) { [] } else { leaves-for $session }
+  let focus_id = $leaves | where {|l| $head in (thread $l.id | get id) } | get -i 0.id
+  let current_ids = thread $head | get id
+  let lanes = $leaves | each {|leaf|
+    if $leaf.id == $focus_id {
+      DIV {class: "focus"} (read-view $head)
+    } else {
+      peer-lane $leaf $current_ids
+    }
+  }
+  # No forks yet -> the reading component is the sole lane.
+  let children = if ($lanes | is-empty) { [(DIV {class: "focus"} (read-view $head))] } else { $lanes }
+  DIV {class: "lane-row", "data-class": "{pulled: $_zoom}"} $children
 }
 
 # Left pane: a table of contents for the current thread -- one entry per turn,
@@ -269,7 +276,7 @@ def page [resume: string] {
       ...(styles)
   ) (
     BODY {
-      "data-signals": ("{ model: '" + $default_model + "', provider: '" + $default_provider + "', model_filter: '', model_sort: '" + $DEFAULT_SORT + "', model_sort_dir: '" + $DEFAULT_SORT_DIR + "', model_sort_click: '', _pickerOpen: false, _lane: 0, _laneHead: '', session: '" + $session + "', head: '" + $head + "' }")
+      "data-signals": ("{ model: '" + $default_model + "', provider: '" + $default_provider + "', model_filter: '', model_sort: '" + $DEFAULT_SORT + "', model_sort_dir: '" + $DEFAULT_SORT_DIR + "', model_sort_click: '', _pickerOpen: false, _zoom: false, session: '" + $session + "', head: '" + $head + "' }")
       "data-init": "@get('/ui')"
     } [
       (DIV {style: "display: grid; grid-template-columns: 16rem 1fr; height: 100vh;"} [
@@ -278,12 +285,12 @@ def page [resume: string] {
             (H1 {style: "font-size: 1rem; margin: 0;"} "yoke")
             (A {href: "/"} "new")
             (A {href: "/runs"} "history")
-            (BUTTON {style: "border: 0; background: transparent; padding: 0; color: #1a4b8c; cursor: pointer;", "data-on:click": "$_lane = -1; @get('/lanes')"} "lanes")
+            (BUTTON {style: "border: 0; background: transparent; padding: 0; color: #1a4b8c; cursor: pointer;", "data-on:click": "$_zoom = !$_zoom"} "lanes")
           ])
           (HEADER {class: "pane-header"} "turns")
           (DIV {id: "thread-toc", style: "overflow-y: auto; flex: 1;"} (thread-toc $head))
         ])
-        (SECTION {id: "view", style: "display: flex; flex-direction: column; min-width: 0; min-height: 0; max-width: 48rem; width: 100%; margin: 0 auto; padding: 0 1rem;"} (read-view $head))
+        (SECTION {id: "view", style: "display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;"} (lanes-view $head))
       ])
       (render-model-picker $models $DEFAULT_SORT $DEFAULT_SORT_DIR)
     ]
@@ -382,38 +389,19 @@ def toc-patch [head: string] {
   thread-toc $head | each {|b| $b.__html } | str join "" | to datastar-patch-elements --selector "#thread-toc" --mode inner
 }
 
-# Enter (or move focus within) the lanes view. Reads $_lane: -1 means "focus the current
-# lane" (pressed on entry), otherwise the target lane index (clamped). Swaps the #view pane
-# to lanes-view and syncs $_lane / $_laneHead so the key handler and Enter stay in step.
-def handle-lanes [req: record] {
-  let signals = $in | from datastar-signals $req
-  let head = $signals.head? | default ""
-  let want = try { $signals._lane? | default (-1) | into int } catch { -1 }
-  if ($head | is-empty) { return ([] | to sse) }
-  let session = try { (.get $head).meta?.session? } catch { null }
-  let leaves = leaves-for $session
-  if ($leaves | is-empty) { return ([] | to sse) }
-  let cur_idx = $leaves | enumerate | where {|x| $head in (thread $x.item.id | get id) } | get -i 0.index | default 0
-  let focus = if $want < 0 { $cur_idx } else { [([$want (($leaves | length) - 1)] | math min) 0] | math max }
-  [
-    (lanes-view $head $leaves $focus | each {|b| $b.__html } | str join "" | to datastar-patch-elements --selector "#view" --mode inner)
-    ({_lane: $focus, _laneHead: ($leaves | get $focus | get id)} | to datastar-patch-signals)
-  ] | to sse
-}
-
-# Restore the reading pane for a head (exiting lanes, forking, or jumping to a turn).
+# Re-render the multi-lane view for a head (selecting a lane, forking, or jumping to a turn).
 def handle-load [req: record] {
   let signals = $in | from datastar-signals $req
   let head = $signals.head? | default ""
   [
-    (read-view $head | each {|b| $b.__html } | str join "" | to datastar-patch-elements --selector "#view" --mode inner)
+    (lanes-view $head | get __html | to datastar-patch-elements --selector "#view" --mode inner)
     (toc-patch $head)
   ] | to sse
 }
 
 # Walk the `continues` linked list back to the root, returning frames oldest -> newest.
 def thread [id: any] {
-  if $id == null { return [] }
+  if ($id | is-empty) { return [] }
   let f = .get $id
   (thread ($f.meta?.continues?)) | append $f
 }
@@ -545,7 +533,6 @@ def handle-sse [req: record] {
     (route {method: GET path: "/ui"} {|req ctx| stream-ui})
     (route {method: POST path: "/ui"} {|req ctx| handle-ui $req})
     (route {method: GET path: "/load"} {|req ctx| handle-load $req})
-    (route {method: GET path: "/lanes"} {|req ctx| handle-lanes $req})
     (route {path: "/runs"} {|req ctx| runs-page})
     (route {path-matches: "/run/:id"} {|req ctx| run-page $ctx.id})
     (route {path: "/code"} {|req ctx| code-page})
