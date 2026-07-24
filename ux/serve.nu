@@ -201,10 +201,15 @@ def lanes-tree [head: string] {
   # wherever it falls (sometimes left, sometimes right, but always the same place for a lane).
   let ordered = $leaves | sort-by {|l| thread $l.id | get id | str join "/" } | each {|l| {leaf: $l, path: (thread $l.id)} }
   let ncols = $ordered | length
+  # The current lane's column; nodes on the current path go here so the shared trunk runs down
+  # under the current lane (not the leftmost). Other nodes stay in the leftmost lane that has
+  # them, branching off to whichever side they fall on.
+  let current_col = $ordered | enumerate | where {|x| $head in ($x.item.path | get id) } | get -i 0.index | default 0
   let placed = $ordered | enumerate | each {|col|
     $col.item.path | enumerate | each {|d| {id: $d.item.id, frame: $d.item, depth: $d.index, col: $col.index} }
   } | flatten | group-by id | items {|id grp|
-    {id: $id, frame: ($grp | first | get frame), depth: ($grp | first | get depth), col: ($grp | get col | math min)}
+    let col = if ($id in $current_ids) { $current_col } else { $grp | get col | math min }
+    {id: $id, frame: ($grp | first | get frame), depth: ($grp | first | get depth), col: $col}
   }
   let cells = $placed | each {|nd|
     let is_current = ($nd.id in $current_ids)
