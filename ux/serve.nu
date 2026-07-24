@@ -15,12 +15,26 @@ source render-gemini.nu
 
 const DEFAULT_PROVIDER = "gemini"
 const DEFAULT_MODEL = "gemini-3-flash-preview"
+const DEFAULT_SORT = "created"
+const DEFAULT_SORT_DIR = "desc"
+
+# Columns shown in the model table. sortable columns get a clickable header.
+const MODEL_COLS = [
+  [key label sortable];
+  [id id true]
+  [intelligence AA true]
+  [context_length context true]
+  [price_in "in $/M" true]
+  [price_out "out $/M" true]
+  [created created true]
+]
 
 const ALL_PROVIDERS = [
   [name label key_var];
   [anthropic Anthropic ANTHROPIC_API_KEY]
   [openai OpenAI OPENAI_API_KEY]
   [gemini Gemini GEMINI_API_KEY]
+  [openrouter OpenRouter OPENROUTER_API_KEY]
 ]
 
 def available-providers [] {
@@ -46,6 +60,9 @@ def styles [] {
       .run-item .prompt { font-size: 0.875rem; }
       .run-item .meta { font-size: 0.75rem; color: #888; margin-top: 0.25rem; }
       .config-row { display: flex; gap: 0.5rem; align-items: center; font-size: 0.75rem; color: #888; margin-bottom: 0.75rem; }
+      .model-row { cursor: pointer; border-bottom: 1px solid #f0f0f0; }
+      .model-row:hover:not(.selected) { background: #f8f8f8; }
+      .model-row.selected { background: #e8f0fe; color: #1a4b8c; }
     ")
   ]
 }
@@ -57,32 +74,61 @@ def nav-bar [...right] {
   ]
 }
 
-def render-model-select [models: list, selected: string] {
-  DIV {
-    id: "model-select",
-    style: "max-height: 12rem; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 0.75rem;"
-  } {
-    $models | each {|m|
-      if $m == $selected {
-        DIV {
-          id: "model-selected",
-          style: "padding: 0.3rem 0.5rem; cursor: pointer; border-radius: 0.25rem; background: #e8f0fe; color: #1a4b8c;",
-          "data-on:click": ("$model = '" + $m + "'; @get('/models')")
-        } $m
-      } else {
-        DIV {
-          style: "padding: 0.3rem 0.5rem; cursor: pointer; border-radius: 0.25rem;",
-          "data-on:click": ("$model = '" + $m + "'; @get('/models')")
-        } $m
-      }
+# Format an integer with thousands separators for display (e.g. 1048576 -> 1,048,576).
+def commafy [n] {
+  $n | into string | split chars | reverse | chunks 3
+    | each { reverse | str join } | reverse | str join ","
+}
+
+# Format a per-million-token price (float) as a compact dollar string.
+# OpenRouter uses -1 to mean "no fixed price" (auto/router models).
+def fmt-price [v] {
+  if ($v < 0) { "auto" } else if ($v == 0) { "free" } else { "$" + ($v | math round --precision 3 | into string) }
+}
+
+# Filter by id/name substring, then sort by the given column and direction.
+def sort-filter-models [models: list, filter: string, sort: string, dir: string] {
+  let filtered = if ($filter | is-empty) {
+    $models
+  } else {
+    $models | where {|m| ($m.id | str contains -i $filter) or ($m.name | str contains -i $filter) }
+  }
+  if ($filtered | is-empty) { return [] }
+  let sorted = $filtered | sort-by -i {|row| $row | get $sort }
+  if $dir == "desc" { $sorted | reverse } else { $sorted }
+}
+
+def render-model-select [models: list, sort: string, dir: string] {
+  # Header cells: carry the sort arrow for the active column.
+  let cols = $MODEL_COLS | each {|c|
+    {
+      key: $c.key,
+      label: $c.label,
+      sortable: $c.sortable,
+      arrow: (if $c.key == $sort { (if $dir == "asc" { " ^" } else { " v" }) } else { "" })
     }
   }
+  # Rows: format numbers/dates in nu so the template stays pure presentation.
+  let rows = $models | each {|m|
+    {
+      id: $m.id,
+      name: $m.name,
+      intelligence: (if (($m.intelligence? | default (-1)) < 0) { "-" } else { $m.intelligence | into string }),
+      context: (commafy $m.context_length),
+      price_in: (fmt-price $m.price_in),
+      price_out: (fmt-price $m.price_out),
+      created: ($m.created | into string | str substring 0..9)
+    }
+  }
+  let html = {cols: $cols, rows: $rows} | .mj ($script_dir | path join templates model-table.html)
+  {__html: $html}
 }
 
 def page [] {
   let providers = available-providers
   let default_provider = $providers | get -i 0 | get -i name | default $DEFAULT_PROVIDER
-  let models = fetch-models $default_provider
+  let models = sort-filter-models (fetch-models $default_provider) "" $DEFAULT_SORT $DEFAULT_SORT_DIR
+  let default_model = $models | get -i 0.id | default $DEFAULT_MODEL
 
   HTML (
     HEAD
@@ -93,7 +139,7 @@ def page [] {
       ...(styles)
   ) (
     BODY {
-      "data-signals": ("{ model: '" + ($models | get -i 0 | default $DEFAULT_MODEL) + "' }")
+      "data-signals": ("{ model: '" + $default_model + "', model_sort: '" + $DEFAULT_SORT + "', model_sort_dir: '" + $DEFAULT_SORT_DIR + "', model_sort_click: '' }")
     }
       (nav-bar (A {href: "/runs"} "history") (A {href: "/code"} "source"))
       (DIV {style: "display: flex; gap: 0.5rem; margin-bottom: 0.75rem;"}
@@ -105,7 +151,9 @@ def page [] {
           style: "flex: 1; font-size: 1rem;"
         })
         (BUTTON {
-          "data-on:click": "$prompt && @get('/sse')"
+          "data-indicator": "_sending",
+          "data-attr:disabled": "$_sending",
+          "data-on:click": "!$_sending && $prompt && @get('/sse')"
         } "send")
       )
       (DIV {class: "config-row"}
@@ -130,19 +178,40 @@ def page [] {
           style: "flex: 1;"
         })
       )
-      (DIV {id: "model-select-wrapper", style: "margin-bottom: 0.75rem;"} (render-model-select $models ($models | get -i 0 | default $DEFAULT_MODEL)))
+      (DIV {id: "model-select-wrapper", style: "margin-bottom: 0.75rem; overflow-x: auto;"} (render-model-select $models $DEFAULT_SORT $DEFAULT_SORT_DIR))
       (DIV {id: "output"} "")
   )
 }
 
 def fetch-models [provider: string] {
-  let topic = $"models.($provider)"
+  let topic = $"models.($provider).v4"
   let cached = try { .last $topic } catch { null }
   if $cached != null {
-    .cas $cached.hash | lines | where { $in != "" }
+    try { .cas $cached.hash | from json } catch { [] }
   } else {
-    let models = try { yoke --provider $provider | from json -o | get id } catch { [] }
-    $models | str join "\n" | .append $topic --ttl time:21600000
+    # Artificial Analysis intelligence index per OpenRouter id (generated by
+    # pull-openrouter-models.nu). -1 is the sentinel for "no score / unmapped".
+    let aa = try { open ($script_dir | path join data aa-index.json) } catch { {} }
+    # Collect yoke's output with `complete` (not `try`): wrapping a streaming
+    # external command in `try` and piping it into `.append` deadlocks in nu.
+    let result = yoke --provider $provider | complete
+    let models = if $result.exit_code == 0 {
+      $result.stdout | from json -o | each {|m|
+        # pricing is USD per token; surface as USD per million tokens for display/sort.
+        let pr = $m.pricing? | default {}
+        let id = ($m.id? | default "")
+        {
+          id: $id,
+          name: ($m.name? | default $id),
+          context_length: ($m.context_length? | default 0),
+          price_in: ((try { $pr.prompt | into float } catch { 0.0 }) * 1000000),
+          price_out: ((try { $pr.completion | into float } catch { 0.0 }) * 1000000),
+          intelligence: ($aa | get -o $id | default (-1)),
+          created: ($m.created? | default "")
+        }
+      }
+    } else { [] }
+    $models | to json | .append $topic --ttl time:21600000
     $models
   }
 }
@@ -151,25 +220,32 @@ def handle-models [req: record] {
   let signals = $in | from datastar-signals $req
   let provider = $signals.provider? | default $DEFAULT_PROVIDER
   let filter = $signals.model_filter? | default ""
+  let click = $signals.model_sort_click? | default ""
+  let cur_sort = $signals.model_sort? | default $DEFAULT_SORT
+  let cur_dir = $signals.model_sort_dir? | default $DEFAULT_SORT_DIR
 
-  let all_models = fetch-models $provider
-  let models = if ($filter | is-empty) {
-    $all_models
+  # A header click sorts by that column, toggling direction if it is already active.
+  let sort = if ($click | is-not-empty) { $click } else { $cur_sort }
+  let dir = if ($click | is-empty) {
+    $cur_dir
+  } else if $click == $cur_sort {
+    if $cur_dir == "asc" { "desc" } else { "asc" }
   } else {
-    $all_models | where { $in | str contains -i $filter }
+    "asc"
   }
+
+  let models = sort-filter-models (fetch-models $provider) $filter $sort $dir
   let current = $signals.model? | default ""
-  let selected = if ($current != "") and ($current in $models) {
+  let selected = if ($current != "") and ($current in ($models | get id)) {
     $current
   } else {
-    $models | get -i 0 | default ""
+    $models | get -i 0.id | default ""
   }
 
   [
-    (render-model-select $models $selected
+    (render-model-select $models $sort $dir
       | to datastar-patch-elements --selector "#model-select-wrapper" --mode inner)
-    ({model: $selected} | to datastar-patch-signals)
-    ("document.querySelector('#model-selected')?.scrollIntoView({block:'nearest'})" | to datastar-execute-script)
+    ({model: $selected, model_sort: $sort, model_sort_dir: $dir, model_sort_click: ""} | to datastar-patch-signals)
   ] | to sse
 }
 
@@ -271,7 +347,7 @@ def handle-sse [req: record] {
     return
   }
 
-  yoke --provider $provider --model $model --tools web_search $prompt
+  yoke --provider $provider --model $model --tools code,web_search $prompt
     | lines
     | tee {
         where { ($in | from json).role? != null }
