@@ -180,15 +180,14 @@ def thread-toc [head: string] {
   }
 }
 
-def page [req: record] {
+def page [resume: string] {
   let providers = available-providers
   let default_provider = $providers | get -i 0 | get -i name | default $DEFAULT_PROVIDER
   let models = sort-filter-models (with-aa (fetch-models $default_provider)) "" $DEFAULT_SORT $DEFAULT_SORT_DIR
   let default_model = $models | get -i 0.id | default $DEFAULT_MODEL
 
-  # ?session=<id> resumes an existing thread; otherwise start a fresh conversation.
+  # /session/<id> resumes an existing thread; / starts a fresh conversation.
   # $head is the current turn we continue from; a fork just points it at an earlier turn.
-  let resume = $req.query?.session? | default ""
   let session = if ($resume | is-not-empty) { $resume } else { random uuid }
   let head = if ($resume | is-empty) { "" } else {
     (try { .cat -T chat.turn | where {|f| $f.meta?.session? == $session } | last | get -i id } catch { null }) | default ""
@@ -372,7 +371,7 @@ def runs-page [] {
         (nav-bar (A {href: "/"} "new"))
         (DIV
           ($runs | each {|run|
-            A {href: $"/?session=($run.sid)", class: "item", style: "display: block; padding: 0.75rem; color: inherit;"} [
+            A {href: $"/session/($run.sid)", class: "item", style: "display: block; padding: 0.75rem; color: inherit;"} [
               (DIV $run.prompt)
               (DIV {style: "font-size: 0.75rem; color: #888; margin-top: 0.25rem;"} $"($run.model) · ($run.turns) turns")
             ]
@@ -462,7 +461,8 @@ def handle-sse [req: record] {
 
 {|req|
   dispatch $req [
-    (route {path: "/"} {|req ctx| page $req})
+    (route {path: "/"} {|req ctx| page ""})
+    (route {path-matches: "/session/:id"} {|req ctx| page $ctx.id})
     (route {method: GET path: "/ui"} {|req ctx| stream-ui})
     (route {method: POST path: "/ui"} {|req ctx| handle-ui $req})
     (route {method: GET path: "/load"} {|req ctx| handle-load $req})
