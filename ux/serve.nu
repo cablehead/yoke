@@ -175,12 +175,20 @@ def thread-toc [session: string] {
       }
 }
 
-def page [] {
+def page [req: record] {
   let providers = available-providers
   let default_provider = $providers | get -i 0 | get -i name | default $DEFAULT_PROVIDER
   let models = sort-filter-models (with-aa (fetch-models $default_provider)) "" $DEFAULT_SORT $DEFAULT_SORT_DIR
   let default_model = $models | get -i 0.id | default $DEFAULT_MODEL
-  let session = random uuid
+
+  # ?session=<id> resumes an existing thread; otherwise start a fresh conversation.
+  let resume = $req.query?.session? | default ""
+  let session = if ($resume | is-not-empty) { $resume } else { random uuid }
+  let resume_cards = if ($resume | is-empty) { [] } else {
+    let turns = try { .cat -T chat.turn | where {|f| $f.meta?.session? == $session } } catch { [] }
+    let head = $turns | last | get -i id
+    if $head == null { [] } else { render-run (thread-lines $head) }
+  }
 
   HTML (
     HEAD
@@ -199,13 +207,14 @@ def page [] {
           (DIV {style: "display: flex; gap: 1rem; align-items: baseline; padding: 0.75rem;"} [
             (H1 {style: "font-size: 1rem; margin: 0;"} "yoke")
             (A {href: "/"} "new")
+            (A {href: "/runs"} "history")
             (A {href: "/code"} "source")
           ])
           (HEADER {class: "pane-header"} "turns")
           (DIV {id: "thread-toc", style: "overflow-y: auto; flex: 1;"} (thread-toc $session))
         ])
         (SECTION {style: "display: flex; flex-direction: column; min-width: 0; min-height: 0; max-width: 48rem; width: 100%; margin: 0 auto; padding: 0 1rem;"} [
-          (DIV {id: "output"} "")
+          (DIV {id: "output"} ...$resume_cards)
           (DIV {style: "position: sticky; bottom: 0; background: #fff; display: flex; gap: 0.5rem; align-items: center; padding: 0.75rem 0; border-top: 1px solid #eee;"} [
             (BUTTON {style: "max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;", "data-on:click": "$_pickerOpen = true", "data-text": "'model: ' + $model"} "model")
             (INPUT {type: "text", placeholder: "ask something...", "data-bind": "prompt", style: "flex: 1;"})
@@ -317,46 +326,39 @@ def thread-lines [id: string] {
 }
 
 def runs-page [] {
-  # One entry per conversation: the head (latest turn) of each session's thread.
-  let heads = try { .cat -T chat.turn } catch { [] }
+  # One entry per conversation (session); clicking resumes it on the home page.
+  let runs = try { .cat -T chat.turn } catch { [] }
     | group-by {|f| $f.meta?.session? | default $f.id }
-    | values | each { last } | sort-by id | reverse
-  let runs = $heads | each {|head|
-    let lines = thread-lines $head.id
-    let user_msg = $lines | where { $in.role? == "user" } | first
-    let prompt = $user_msg.content?
-      | default []
-      | where { $in.type? == "text" }
-      | get -i 0
-      | get -i text
-      | default "(no prompt)"
-    let model = $head.meta?.model? | default ""
-    let preview = if ($prompt | str length) > 80 {
-      ($prompt | str substring 0..80) + "..."
-    } else {
-      $prompt
-    }
-    {id: $head.id, prompt: $preview, model: $model}
-  }
+    | transpose sid frames
+    | each {|s|
+        let head = $s.frames | last
+        let root_lines = try { .cas ($s.frames | first | get hash) | lines | where {|l| $l != "" } | each { from json } } catch { [] }
+        let user = $root_lines | where {|m| $m.role? == "user" } | first
+        let prompt = $user.content? | default [] | where {|c| $c.type? == "text" } | get -i 0.text | default "(no prompt)"
+        let preview = if ($prompt | str length) > 80 { ($prompt | str substring 0..80) + "..." } else { $prompt }
+        {sid: $s.sid, head: $head.id, prompt: $preview, model: ($head.meta?.model? | default ""), turns: ($s.frames | length)}
+      }
+    | sort-by head | reverse
 
   HTML (
     HEAD
       (META {charset: "utf-8"})
       (META {name: "viewport", content: "width=device-width, initial-scale=1"})
       (TITLE "yoke - history")
-      (SCRIPT-DATASTAR)
       ...(styles)
   ) (
     BODY
-      (nav-bar (A {href: "/"} "new"))
-      (DIV {
-        $runs | each {|run|
-          A {href: $"/run/($run.id)", class: "run-item", style: "display: block; text-decoration: none; color: inherit;"} [
-            (DIV {class: "prompt"} $run.prompt)
-            (DIV {class: "meta"} $run.model)
-          ]
-        }
-      })
+      (DIV {style: "max-width: 48rem; margin: 2rem auto; padding: 0 1rem;"} [
+        (nav-bar (A {href: "/"} "new"))
+        (DIV
+          ($runs | each {|run|
+            A {href: $"/?session=($run.sid)", class: "item", style: "display: block; padding: 0.75rem; color: inherit;"} [
+              (DIV $run.prompt)
+              (DIV {style: "font-size: 0.75rem; color: #888; margin-top: 0.25rem;"} $"($run.model) · ($run.turns) turns")
+            ]
+          })
+        )
+      ])
   )
 }
 
@@ -442,7 +444,7 @@ def handle-sse [req: record] {
 
 {|req|
   dispatch $req [
-    (route {path: "/"} {|req ctx| page})
+    (route {path: "/"} {|req ctx| page $req})
     (route {method: GET path: "/ui"} {|req ctx| stream-ui})
     (route {method: POST path: "/ui"} {|req ctx| handle-ui $req})
     (route {path: "/runs"} {|req ctx| runs-page})
