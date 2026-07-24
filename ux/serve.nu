@@ -542,6 +542,14 @@ def handle-sse [req: record] {
     (route {path: "/runs"} {|req ctx| runs-page})
     (route {path-matches: "/run/:id"} {|req ctx| run-page $ctx.id})
     (route {path: "/code"} {|req ctx| code-page})
+    (route {path-matches: "/design/screenshots/:name"} {|req ctx|
+      let f = $script_dir | path join .. design screenshots $ctx.name | path expand
+      if ($f | path exists) {
+        open --raw $f | metadata set { merge {'http.response': {headers: {'content-type': 'image/png'}}} }
+      } else {
+        "not found" | metadata set { merge {'http.response': {status: 404}} }
+      }
+    })
     (route {path: "/sse"} {|req ctx| handle-sse $req})
     (route true {|req ctx|
       "not found" | metadata set { merge {'http.response': {status: 404}} }
