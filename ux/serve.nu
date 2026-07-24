@@ -157,14 +157,47 @@ def render-model-picker [models: list, sort: string, dir: string] {
   ]
 }
 
+# A turn's user question, for previews in the TOC and lanes.
+def turn-label [frame: record] {
+  let lines = try { .cas $frame.hash | lines | where {|l| $l != "" } | each { from json } } catch { [] }
+  let user = $lines | where {|m| $m.role? == "user" } | first
+  $user.content? | default [] | where {|c| $c.type? == "text" } | get -i 0.text | default "(turn)"
+}
+
+# Zoom-out lane carousel: every leaf tip is a lane, rendered as its path with the turns
+# shared with the current lane dimmed (the trunk) and its divergent tail emphasized. The
+# lane the current head sits on is highlighted; clicking a lane switches to it.
+def render-lanes [head: string] {
+  if ($head | is-empty) { return "" }
+  let session = try { (.get $head).meta?.session? } catch { null }
+  let frames = try { .cat -T chat.turn | where {|f| $f.meta?.session? == $session } } catch { [] }
+  let parents = $frames | each {|f| $f.meta?.continues? } | compact
+  let leaves = $frames | where {|f| $f.id not-in $parents }
+  let current_ids = thread $head | get id
+
+  let lanes = $leaves | each {|leaf|
+    let path = thread $leaf.id
+    let is_current = ($head in ($path | get id))
+    let turns = $path | each {|f|
+      let shared = ($f.id in $current_ids)
+      let label = turn-label $f
+      let preview = if ($label | str length) > 30 { ($label | str substring 0..30) + "..." } else { $label }
+      DIV {style: ("padding: 0.15rem 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; " + (if $shared { "color: #bbb;" } else { "color: #222; font-weight: 600;" }))} $preview
+    }
+    DIV {
+      style: ("flex: none; width: 15rem; padding: 0.5rem 0.75rem; border-radius: 0.5rem; cursor: pointer; border: 1px solid " + (if $is_current { "#1a4b8c; background: #eef4fc;" } else { "#eee;" })),
+      "data-on:click": ("$head = '" + $leaf.id + "'; $_zoom = false; @get('/load')")
+    } $turns
+  }
+  DIV {style: "display: flex; gap: 0.75rem; overflow-x: auto; padding: 1rem; align-items: flex-start;"} $lanes
+}
+
 # Left pane: a table of contents for the current thread -- one entry per turn,
 # clicking scrolls the output to that turn (#turn-N).
 def thread-toc [head: string] {
   if ($head | is-empty) { return [] }
   thread $head | enumerate | each {|t|
-    let lines = try { .cas $t.item.hash | lines | where {|l| $l != "" } | each { from json } } catch { [] }
-    let user = $lines | where {|m| $m.role? == "user" } | first
-    let label = $user.content? | default [] | where {|c| $c.type? == "text" } | get -i 0.text | default "(turn)"
+    let label = turn-label $t.item
     let preview = if ($label | str length) > 34 { ($label | str substring 0..34) + "..." } else { $label }
     DIV {class: "item", style: "display: flex; align-items: center;"} [
       (BUTTON {
@@ -203,7 +236,7 @@ def page [resume: string] {
       ...(styles)
   ) (
     BODY {
-      "data-signals": ("{ model: '" + $default_model + "', provider: '" + $default_provider + "', model_filter: '', model_sort: '" + $DEFAULT_SORT + "', model_sort_dir: '" + $DEFAULT_SORT_DIR + "', model_sort_click: '', _pickerOpen: false, session: '" + $session + "', head: '" + $head + "' }")
+      "data-signals": ("{ model: '" + $default_model + "', provider: '" + $default_provider + "', model_filter: '', model_sort: '" + $DEFAULT_SORT + "', model_sort_dir: '" + $DEFAULT_SORT_DIR + "', model_sort_click: '', _pickerOpen: false, _zoom: false, session: '" + $session + "', head: '" + $head + "' }")
       "data-init": "@get('/ui')"
     } [
       (DIV {style: "display: grid; grid-template-columns: 16rem 1fr; height: 100vh;"} [
@@ -212,7 +245,7 @@ def page [resume: string] {
             (H1 {style: "font-size: 1rem; margin: 0;"} "yoke")
             (A {href: "/"} "new")
             (A {href: "/runs"} "history")
-            (A {href: "/code"} "source")
+            (BUTTON {style: "border: 0; background: transparent; padding: 0; color: #1a4b8c; cursor: pointer;", "data-on:click": "$_zoom = true"} "lanes")
           ])
           (HEADER {class: "pane-header"} "turns")
           (DIV {id: "thread-toc", style: "overflow-y: auto; flex: 1;"} (thread-toc $head))
@@ -225,6 +258,13 @@ def page [resume: string] {
             (BUTTON {"data-indicator": "_sending", "data-attr:disabled": "$_sending", "data-on:click": "!$_sending && $prompt && @get('/sse'); $prompt = ''"} "send")
           ])
         ])
+      ])
+      (DIV {id: "lanes-overlay", "data-show": "$_zoom", style: "position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; flex-direction: column; padding: 2rem; z-index: 20;"} [
+        (DIV {style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;"} [
+          (SPAN {style: "color: #fff; font-weight: 600;"} "lanes")
+          (BUTTON {style: "border: 0; background: transparent; color: #fff; font-size: 1.25rem; cursor: pointer;", "data-on:click": "$_zoom = false"} "close")
+        ])
+        (DIV {id: "lanes", style: "background: #fff; border-radius: 0.5rem; overflow: hidden; flex: 1;"} (render-lanes $head))
       ])
       (render-model-picker $models $DEFAULT_SORT $DEFAULT_SORT_DIR)
     ]
@@ -313,12 +353,18 @@ def stream-ui [] {
       ]
     } else if $e.topic == "chat-turn-saved" {
       let head = $e.value.head? | default ""
-      [
-        ({head: $head} | to datastar-patch-signals)
-        (thread-toc $head | each {|b| $b.__html } | str join "" | to datastar-patch-elements --selector "#thread-toc" --mode inner)
-      ]
+      [ ({head: $head} | to datastar-patch-signals) ] | append (nav-patches $head)
     } else { [] }
   } | flatten | to sse
+}
+
+# Side-panel patches for a head: the turn TOC and the lane carousel. Shared by the bus
+# projection (after a turn) and /load (jumping / forking).
+def nav-patches [head: string] {
+  [
+    (thread-toc $head | each {|b| $b.__html } | str join "" | to datastar-patch-elements --selector "#thread-toc" --mode inner)
+    (render-lanes $head | to datastar-patch-elements --selector "#lanes" --mode inner)
+  ]
 }
 
 # Load the path root..head into #output (used when forking / jumping to a turn).
@@ -326,10 +372,7 @@ def handle-load [req: record] {
   let signals = $in | from datastar-signals $req
   let head = $signals.head? | default ""
   let cards = if ($head | is-empty) { [] } else { render-run (thread-lines $head) }
-  [
-    ((DIV {id: "output"} ...$cards) | to datastar-patch-elements)
-    (thread-toc $head | each {|b| $b.__html } | str join "" | to datastar-patch-elements --selector "#thread-toc" --mode inner)
-  ] | to sse
+  [ ((DIV {id: "output"} ...$cards) | to datastar-patch-elements) ] | append (nav-patches $head) | to sse
 }
 
 # Walk the `continues` linked list back to the root, returning frames oldest -> newest.
