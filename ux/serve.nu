@@ -181,8 +181,14 @@ def leaves-for [session: any] {
 
 # The pulled-out overview: the whole conversation drawn as a tree. Every lane (leaf tip) is a
 # column; each turn is a node placed at grid-row = its depth, so shared ancestors line up and
+# The JSONL messages appended for a single turn (one chat.turn frame).
+def turn-lines [frame: record] {
+  try { .cas $frame.hash | lines | where {|l| $l != "" } | each { from json } } catch { [] }
+}
+
 # a trunk node spans the columns of all lanes that descend from it -- shared then branching.
-# Nodes on the current thread are highlighted. Clicking a node selects it as the head.
+# Every node renders its real cards (the same reading component), so a lane is literally the
+# conversation, just aligned against its siblings. Clicking a node selects it as the head.
 def lanes-tree [head: string] {
   let session = try { (.get $head).meta?.session? } catch { null }
   let leaves = if ($head | is-empty) { [] } else { leaves-for $session }
@@ -199,20 +205,21 @@ def lanes-tree [head: string] {
     {id: $id, frame: ($grp | first | get frame), depth: ($grp | first | get depth), min: ($grp | get col | math min), max: ($grp | get col | math max)}
   } | each {|nd|
     let is_current = ($nd.id in $current_ids)
-    let skin = if $is_current { "background: #eef4fc; border-color: #1a4b8c; color: #1a4b8c; font-weight: 600;" } else { "background: #fff; border-color: #eee; color: #555;" }
+    let skin = if $is_current { "outline: 2px solid #1a4b8c; outline-offset: 2px; border-radius: 0.5rem;" } else { "" }
     let place = "grid-row: " + (($nd.depth + 1) | into string) + "; grid-column: " + (($nd.min + 1) | into string) + " / span " + (($nd.max - $nd.min + 1) | into string) + ";"
     DIV {
-      style: ("border: 1px solid; border-radius: 0.4rem; padding: 0.4rem 0.6rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; " + $place + $skin),
+      style: ("min-width: 0; cursor: pointer; " + $place + $skin),
       "data-on:click": ("$head = '" + $nd.id + "'; $_zoom = false; @get('/load')")
-    } (turn-label $nd.frame)
+    } (render-run (turn-lines $nd.frame))
   }
-  DIV {class: "tree", style: ("grid-template-columns: repeat(" + ($n | into string) + ", 12rem);")} $cells
+  DIV {class: "tree", id: "lanes-tree", style: ("grid-template-columns: repeat(" + ($n | into string) + ", minmax(0, 24rem));")} $cells
 }
 
 # The multi-lane view IS the main view. The reading component (cards + composer) is the current
-# lane; the tree overview is every lane aligned by shared node. Pulling away ($_zoom, a client
-# CSS class) crossfades the reading lane out and the aligned tree in. Both stay in the DOM so
-# streaming keeps targeting #output and the toggle needs no round trip.
+# lane; the overview is every lane rendered the same way, aligned by shared node. Pulling away
+# ($_zoom, a client CSS class) crossfades the reading lane out and the aligned lanes in. Both
+# stay in the DOM; the /ui bus re-broadcasts this whole view on every turn, so all visible lanes
+# live-update.
 def lanes-view [head: string] {
   DIV {class: "lane-wrap", "data-class": "{pulled: $_zoom}"} [
     (DIV {class: "reading"} (read-view $head))
@@ -384,8 +391,14 @@ def stream-ui [] {
         ({model: $selected, model_sort: $s.sort, model_sort_dir: $s.dir, model_sort_click: ""} | to datastar-patch-signals)
       ]
     } else if $e.topic == "chat-turn-saved" {
+      # A turn landed in some lane. The reading lane already streamed it into #output; here we
+      # re-broadcast the aligned overview (#lanes-tree) so every visible lane reflects it too.
       let head = $e.value.head? | default ""
-      [ ({head: $head} | to datastar-patch-signals) (toc-patch $head) ]
+      [
+        ({head: $head} | to datastar-patch-signals)
+        (lanes-tree $head | get __html | to datastar-patch-elements)
+        (toc-patch $head)
+      ]
     } else { [] }
   } | flatten | to sse
 }
