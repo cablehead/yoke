@@ -1,13 +1,13 @@
 ## Git Commit Style Preferences
 
-**NEVER commit unless explicitly asked by the user.**
+Prefer to commit at each stable point.
 
 When committing: review `git diff`
 
 - Use conventional commit format: `type: subject line`
-- Keep subject line concise and descriptive
+- Subject line 80 chars or less; no wasted words, no fluff, each word adds value
 - **NEVER include marketing language, promotional text, or AI attribution**
-- **NEVER add "Generated with Claude Code", "Co-Authored-By: Claude", or similar spam**
+- **NEVER add "Generated with Claude Code", "Co-Authored-By: Claude", or similar spam** (includeCoAuthoredBy=false)
 - Follow existing project patterns from git log
 - Prefer just a subject and no body, unless the change is particularly complex
 
