@@ -194,19 +194,22 @@ def lanes-tree [head: string] {
   let leaves = if ($head | is-empty) { [] } else { leaves-for $session }
   if ($leaves | is-empty) { return (DIV {class: "tree"} "") }
   let current_ids = thread $head | get id
-  # Column order: sorting leaves by their root->tip id path groups shared prefixes (DFS order),
-  # so a shared ancestor's descendant lanes are contiguous and its node can span them.
-  let ordered = $leaves | each {|l| {leaf: $l, path: (thread $l.id)} } | sort-by {|x| $x.path | get id | str join "/" }
+  # The current lane is the spine (column 0), holding the shared trunk at full single-column
+  # width. Peers follow; each turn is placed in the leftmost lane that has it, so a shared node
+  # lands on the spine and peers only draw the nodes where they branch off it.
+  let current_leaf = $leaves | where {|l| $head in (thread $l.id | get id) } | get -i 0 | default ($leaves | first)
+  let others = $leaves | where {|l| $l.id != $current_leaf.id } | sort-by {|l| thread $l.id | get id | str join "/" }
+  let ordered = ([$current_leaf] ++ $others) | each {|l| {leaf: $l, path: (thread $l.id)} }
   let n = $ordered | length
-  # Every (node, column) placement, then folded to one cell per node spanning its columns.
+  # Every (node, column) placement, folded to one cell per node in its leftmost column.
   let cells = $ordered | enumerate | each {|col|
     $col.item.path | enumerate | each {|d| {id: $d.item.id, frame: $d.item, depth: $d.index, col: $col.index} }
   } | flatten | group-by id | items {|id grp|
-    {id: $id, frame: ($grp | first | get frame), depth: ($grp | first | get depth), min: ($grp | get col | math min), max: ($grp | get col | math max)}
+    {id: $id, frame: ($grp | first | get frame), depth: ($grp | first | get depth), col: ($grp | get col | math min)}
   } | each {|nd|
     let is_current = ($nd.id in $current_ids)
     let skin = if $is_current { "outline: 2px solid #1a4b8c; outline-offset: 2px; border-radius: 0.5rem;" } else { "" }
-    let place = "grid-row: " + (($nd.depth + 1) | into string) + "; grid-column: " + (($nd.min + 1) | into string) + " / span " + (($nd.max - $nd.min + 1) | into string) + ";"
+    let place = "grid-row: " + (($nd.depth + 1) | into string) + "; grid-column: " + (($nd.col + 1) | into string) + ";"
     DIV {
       style: ("min-width: 0; cursor: pointer; " + $place + $skin),
       "data-on:click": ("$head = '" + $nd.id + "'; $_zoom = false; @get('/load')")
