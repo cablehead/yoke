@@ -159,20 +159,25 @@ def render-model-picker [models: list, sort: string, dir: string] {
 
 # Left pane: a table of contents for the current thread -- one entry per turn,
 # clicking scrolls the output to that turn (#turn-N).
-def thread-toc [session: string] {
-  try { .cat -T chat.turn | where {|f| $f.meta?.session? == $session } } catch { [] }
-    | enumerate
-    | each {|t|
-        let lines = try { .cas $t.item.hash | lines | where {|l| $l != "" } | each { from json } } catch { [] }
-        let user = $lines | where {|m| $m.role? == "user" } | first
-        let label = $user.content? | default [] | where {|c| $c.type? == "text" } | get -i 0.text | default "(turn)"
-        let preview = if ($label | str length) > 40 { ($label | str substring 0..40) + "..." } else { $label }
-        BUTTON {
-          class: "item",
-          style: "display: block; width: 100%; text-align: left; padding: 0.5rem 0.75rem;",
-          "data-on:click": ("document.getElementById('turn-" + ($t.index | into string) + "')?.scrollIntoView({behavior: 'smooth', block: 'start'})")
-        } $preview
-      }
+def thread-toc [head: string] {
+  if ($head | is-empty) { return [] }
+  thread $head | enumerate | each {|t|
+    let lines = try { .cas $t.item.hash | lines | where {|l| $l != "" } | each { from json } } catch { [] }
+    let user = $lines | where {|m| $m.role? == "user" } | first
+    let label = $user.content? | default [] | where {|c| $c.type? == "text" } | get -i 0.text | default "(turn)"
+    let preview = if ($label | str length) > 34 { ($label | str substring 0..34) + "..." } else { $label }
+    DIV {class: "item", style: "display: flex; align-items: center;"} [
+      (BUTTON {
+        style: "flex: 1; min-width: 0; text-align: left; border: 0; background: transparent; cursor: pointer; padding: 0.5rem 0.75rem; color: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;",
+        "data-on:click": ("document.getElementById('turn-" + ($t.index | into string) + "')?.scrollIntoView({behavior: 'smooth', block: 'start'})")
+      } $preview)
+      (BUTTON {
+        title: "branch from here",
+        style: "border: 0; background: transparent; cursor: pointer; padding: 0.5rem; color: #999;",
+        "data-on:click": ("$head = '" + $t.item.id + "'; @get('/load')")
+      } "fork")
+    ]
+  }
 }
 
 def page [req: record] {
@@ -182,13 +187,13 @@ def page [req: record] {
   let default_model = $models | get -i 0.id | default $DEFAULT_MODEL
 
   # ?session=<id> resumes an existing thread; otherwise start a fresh conversation.
+  # $head is the current turn we continue from; a fork just points it at an earlier turn.
   let resume = $req.query?.session? | default ""
   let session = if ($resume | is-not-empty) { $resume } else { random uuid }
-  let resume_cards = if ($resume | is-empty) { [] } else {
-    let turns = try { .cat -T chat.turn | where {|f| $f.meta?.session? == $session } } catch { [] }
-    let head = $turns | last | get -i id
-    if $head == null { [] } else { render-run (thread-lines $head) }
+  let head = if ($resume | is-empty) { "" } else {
+    (try { .cat -T chat.turn | where {|f| $f.meta?.session? == $session } | last | get -i id } catch { null }) | default ""
   }
+  let resume_cards = if ($head | is-empty) { [] } else { render-run (thread-lines $head) }
 
   HTML (
     HEAD
@@ -199,7 +204,7 @@ def page [req: record] {
       ...(styles)
   ) (
     BODY {
-      "data-signals": ("{ model: '" + $default_model + "', provider: '" + $default_provider + "', model_filter: '', model_sort: '" + $DEFAULT_SORT + "', model_sort_dir: '" + $DEFAULT_SORT_DIR + "', model_sort_click: '', _pickerOpen: false, session: '" + $session + "' }")
+      "data-signals": ("{ model: '" + $default_model + "', provider: '" + $default_provider + "', model_filter: '', model_sort: '" + $DEFAULT_SORT + "', model_sort_dir: '" + $DEFAULT_SORT_DIR + "', model_sort_click: '', _pickerOpen: false, session: '" + $session + "', head: '" + $head + "' }")
       "data-init": "@get('/ui')"
     } [
       (DIV {style: "display: grid; grid-template-columns: 16rem 1fr; height: 100vh;"} [
@@ -211,7 +216,7 @@ def page [req: record] {
             (A {href: "/code"} "source")
           ])
           (HEADER {class: "pane-header"} "turns")
-          (DIV {id: "thread-toc", style: "overflow-y: auto; flex: 1;"} (thread-toc $session))
+          (DIV {id: "thread-toc", style: "overflow-y: auto; flex: 1;"} (thread-toc $head))
         ])
         (SECTION {style: "display: flex; flex-direction: column; min-width: 0; min-height: 0; max-width: 48rem; width: 100%; margin: 0 auto; padding: 0 1rem;"} [
           (DIV {id: "output"} ...$resume_cards)
@@ -307,10 +312,25 @@ def stream-ui [] {
         (render-model-select $models $s.sort $s.dir | to datastar-patch-elements --selector "#model-list" --mode inner)
         ({model: $selected, model_sort: $s.sort, model_sort_dir: $s.dir, model_sort_click: ""} | to datastar-patch-signals)
       ]
-    } else if $e.topic == "chat-index" {
-      [ (thread-toc ($e.value.session? | default "") | each {|b| $b.__html } | str join "" | to datastar-patch-elements --selector "#thread-toc" --mode inner) ]
+    } else if $e.topic == "chat-turn-saved" {
+      let head = $e.value.head? | default ""
+      [
+        ({head: $head} | to datastar-patch-signals)
+        (thread-toc $head | each {|b| $b.__html } | str join "" | to datastar-patch-elements --selector "#thread-toc" --mode inner)
+      ]
     } else { [] }
   } | flatten | to sse
+}
+
+# Load the path root..head into #output (used when forking / jumping to a turn).
+def handle-load [req: record] {
+  let signals = $in | from datastar-signals $req
+  let head = $signals.head? | default ""
+  let cards = if ($head | is-empty) { [] } else { render-run (thread-lines $head) }
+  [
+    ((DIV {id: "output"} ...$cards) | to datastar-patch-elements)
+    (thread-toc $head | each {|b| $b.__html } | str join "" | to datastar-patch-elements --selector "#thread-toc" --mode inner)
+  ] | to sse
 }
 
 # Walk the `continues` linked list back to the root, returning frames oldest -> newest.
@@ -411,17 +431,17 @@ def handle-sse [req: record] {
   let provider = $signals.provider? | default $DEFAULT_PROVIDER
   let model = $signals.model? | default $DEFAULT_MODEL
   let session = $signals.session? | default "adhoc"
+  let head = $signals.head? | default ""
 
   if ($prompt | is-empty) {
     {data: "no prompt"} | to sse
     return
   }
 
-  # This conversation's turns (a chat.turn thread), oldest to newest. Each frame holds only
-  # that turn's new role messages; concatenating them rebuilds the full context.
-  let turns = try { .cat -T chat.turn | where {|f| $f.meta?.session? == $session } } catch { [] }
-  let parent = $turns | last | get -i id
-  let prior = $turns | each {|f| .cas $f.hash } | str join "\n"
+  # Continue from the current position ($head): the path root..head is the context, and this
+  # turn is saved as a child of $head. A fork is just $head pointing at an earlier turn.
+  let parent = if ($head | is-empty) { null } else { $head }
+  let prior = if ($head | is-empty) { "" } else { thread $head | each {|f| .cas $f.hash } | str join "\n" }
   let prior_roles = if ($prior | str trim | is-empty) { 0 } else {
     $prior | lines | where {|l| (try { $l | from json | get -i role } catch { null }) != null } | length
   }
@@ -432,11 +452,9 @@ def handle-sse [req: record] {
     | yoke --provider $provider --model $model --tools code,web_search $prompt
     | lines
     | tee {
-        where { ($in | from json).role? != null }
-        | skip $prior_roles
-        | str join "\n"
-        | .append chat.turn --meta {session: $session, continues: $parent, model: $model}
-        {session: $session} | .bus pub "chat-index"
+        let all = $in
+        let saved = ($all | where { ($in | from json).role? != null } | skip $prior_roles | str join "\n" | .append chat.turn --meta {session: $session, continues: $parent, model: $model})
+        {session: $session, head: $saved.id} | .bus pub "chat-turn-saved"
       }
     | render yoke-stream -m $model
     | to sse
@@ -447,6 +465,7 @@ def handle-sse [req: record] {
     (route {path: "/"} {|req ctx| page $req})
     (route {method: GET path: "/ui"} {|req ctx| stream-ui})
     (route {method: POST path: "/ui"} {|req ctx| handle-ui $req})
+    (route {method: GET path: "/load"} {|req ctx| handle-load $req})
     (route {path: "/runs"} {|req ctx| runs-page})
     (route {path-matches: "/run/:id"} {|req ctx| run-page $ctx.id})
     (route {path: "/code"} {|req ctx| code-page})
