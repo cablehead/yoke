@@ -68,7 +68,7 @@ impl SubAgentTool {
             api_key: String::new(),
             provider,
             tools: Vec::new(),
-            thinking_level: ThinkingLevel::Off,
+            thinking_level: ThinkingLevel::Default,
             max_tokens: None,
             cache_config: CacheConfig::default(),
             tool_execution: ToolExecutionStrategy::default(),

@@ -61,6 +61,19 @@ pub enum MaxTokensField {
     MaxCompletionTokens,
 }
 
+/// How an OpenAI-compatible endpoint accepts reasoning/effort controls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ReasoningStyle {
+    /// Endpoint ignores reasoning params; send nothing.
+    #[default]
+    None,
+    /// OpenAI chat-completions `reasoning_effort` string (no explicit disable).
+    Effort,
+    /// OpenRouter unified `reasoning: { effort }` object (supports `"none"` to disable).
+    Object,
+}
+
 /// How a provider formats thinking/reasoning output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -79,8 +92,8 @@ pub struct OpenAiCompat {
     pub supports_store: bool,
     /// Supports `developer` role (system-level instructions).
     pub supports_developer_role: bool,
-    /// Supports `reasoning_effort` parameter.
-    pub supports_reasoning_effort: bool,
+    /// How this endpoint accepts reasoning/effort controls.
+    pub reasoning_style: ReasoningStyle,
     /// Includes usage data in streaming responses.
     pub supports_usage_in_streaming: bool,
     /// Which field name to use for max tokens.
@@ -98,7 +111,7 @@ impl Default for OpenAiCompat {
         Self {
             supports_store: false,
             supports_developer_role: false,
-            supports_reasoning_effort: false,
+            reasoning_style: ReasoningStyle::None,
             supports_usage_in_streaming: true,
             max_tokens_field: MaxTokensField::MaxTokens,
             requires_tool_result_name: false,
@@ -114,7 +127,7 @@ impl OpenAiCompat {
         Self {
             supports_store: true,
             supports_developer_role: true,
-            supports_reasoning_effort: true,
+            reasoning_style: ReasoningStyle::Effort,
             supports_usage_in_streaming: true,
             max_tokens_field: MaxTokensField::MaxCompletionTokens,
             ..Default::default()
@@ -148,6 +161,7 @@ impl OpenAiCompat {
         Self {
             supports_usage_in_streaming: true,
             max_tokens_field: MaxTokensField::MaxCompletionTokens,
+            reasoning_style: ReasoningStyle::Object,
             ..Default::default()
         }
     }

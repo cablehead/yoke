@@ -351,13 +351,13 @@ fn build_request_body(config: &StreamConfig, _model_config: &ModelConfig) -> ser
         body["tools"] = serde_json::json!(tools);
     }
 
-    if config.thinking_level != ThinkingLevel::Off {
-        let effort = match config.thinking_level {
-            ThinkingLevel::Minimal | ThinkingLevel::Low => "low",
-            ThinkingLevel::Medium => "medium",
-            ThinkingLevel::High => "high",
-            ThinkingLevel::Off => unreachable!(),
-        };
+    let effort = match config.thinking_level {
+        ThinkingLevel::Default | ThinkingLevel::Off => None,
+        ThinkingLevel::Minimal | ThinkingLevel::Low => Some("low"),
+        ThinkingLevel::Medium => Some("medium"),
+        ThinkingLevel::High => Some("high"),
+    };
+    if let Some(effort) = effort {
         body["reasoning"] = serde_json::json!({"effort": effort});
     }
 

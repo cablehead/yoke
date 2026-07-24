@@ -6,7 +6,7 @@
 //!
 //! Behavioral differences are handled via `OpenAiCompat` flags in ModelConfig.
 
-use super::model::{MaxTokensField, ModelConfig, OpenAiCompat, ThinkingFormat};
+use super::model::{MaxTokensField, ModelConfig, OpenAiCompat, ReasoningStyle, ThinkingFormat};
 use super::traits::*;
 use crate::types::*;
 use async_trait::async_trait;
@@ -97,10 +97,7 @@ impl StreamProvider for OpenAiCompatProvider {
                                 let delta = &choice.delta;
 
                                 // Handle reasoning/thinking content
-                                let reasoning = match compat.thinking_format {
-                                    ThinkingFormat::Xai => delta.reasoning.as_deref(),
-                                    _ => delta.reasoning_content.as_deref(),
-                                };
+                                let reasoning = reasoning_delta(delta, compat.thinking_format);
                                 if let Some(reasoning_text) = reasoning {
                                     // Find or create thinking block
                                     let thinking_idx = content.iter().position(|c| matches!(c, Content::Thinking { .. }));
@@ -458,14 +455,34 @@ fn build_request_body(
         }
     }
 
-    if config.thinking_level != ThinkingLevel::Off && compat.supports_reasoning_effort {
-        let effort = match config.thinking_level {
-            ThinkingLevel::Minimal | ThinkingLevel::Low => "low",
-            ThinkingLevel::Medium => "medium",
-            ThinkingLevel::High => "high",
-            ThinkingLevel::Off => unreachable!(),
-        };
-        body["reasoning_effort"] = serde_json::json!(effort);
+    match compat.reasoning_style {
+        // OpenRouter's unified reasoning object; supports explicit "none" to disable.
+        ReasoningStyle::Object => {
+            let effort = match config.thinking_level {
+                ThinkingLevel::Default => None,
+                ThinkingLevel::Off => Some("none"),
+                ThinkingLevel::Minimal => Some("minimal"),
+                ThinkingLevel::Low => Some("low"),
+                ThinkingLevel::Medium => Some("medium"),
+                ThinkingLevel::High => Some("high"),
+            };
+            if let Some(effort) = effort {
+                body["reasoning"] = serde_json::json!({ "effort": effort });
+            }
+        }
+        // OpenAI chat-completions `reasoning_effort`: no explicit disable; omit for Default/Off.
+        ReasoningStyle::Effort => {
+            let effort = match config.thinking_level {
+                ThinkingLevel::Default | ThinkingLevel::Off => None,
+                ThinkingLevel::Minimal | ThinkingLevel::Low => Some("low"),
+                ThinkingLevel::Medium => Some("medium"),
+                ThinkingLevel::High => Some("high"),
+            };
+            if let Some(effort) = effort {
+                body["reasoning_effort"] = serde_json::json!(effort);
+            }
+        }
+        ReasoningStyle::None => {}
     }
 
     if let Some(temp) = config.temperature {
@@ -512,6 +529,17 @@ struct OpenAiChoice {
     delta: OpenAiDelta,
     #[serde(default)]
     finish_reason: Option<String>,
+}
+
+/// Select the reasoning/thinking text from a streaming delta. Providers disagree on the
+/// field name: OpenRouter/xAI stream it in `reasoning`, DeepSeek and others in `reasoning_content`.
+fn reasoning_delta(delta: &OpenAiDelta, format: ThinkingFormat) -> Option<&str> {
+    // Prefer the format's primary field, but fall back to the other so nothing is dropped
+    // (OpenRouter always uses `reasoning`, even though its base format is OpenAi-style).
+    match format {
+        ThinkingFormat::Xai => delta.reasoning.as_deref().or(delta.reasoning_content.as_deref()),
+        _ => delta.reasoning_content.as_deref().or(delta.reasoning.as_deref()),
+    }
 }
 
 #[derive(Deserialize, Default)]
@@ -566,6 +594,42 @@ struct OpenAiPromptTokensDetails {
 mod tests {
     use super::*;
     use crate::provider::model::ModelConfig;
+
+    #[test]
+    fn test_openrouter_reasoning_stream_captured() {
+        // Real capture: moonshotai/kimi-k2.7-code via OpenRouter (provider AtlasCloud).
+        // Reasoning streams in the `reasoning` delta field; `content` is empty until the answer.
+        let raw = include_str!("testdata/openrouter_kimi_reasoning_stream.txt");
+        let mut thinking = String::new();
+        let mut answer = String::new();
+        for line in raw.lines() {
+            let data = match line.strip_prefix("data:") {
+                Some(d) => d.trim(),
+                None => continue,
+            };
+            if data.is_empty() || data == "[DONE]" {
+                continue;
+            }
+            let chunk: OpenAiChunk = serde_json::from_str(data).expect("valid chunk");
+            for choice in &chunk.choices {
+                // OpenRouter uses the default (OpenAi) thinking format.
+                if let Some(r) = reasoning_delta(&choice.delta, ThinkingFormat::OpenAi) {
+                    thinking.push_str(r);
+                }
+                if let Some(c) = &choice.delta.content {
+                    answer.push_str(c);
+                }
+            }
+        }
+        assert!(
+            thinking.contains("arithmetic"),
+            "reasoning must be captured from the `reasoning` field; got {thinking:?}"
+        );
+        assert!(
+            answer.contains("42"),
+            "answer content must still be captured; got {answer:?}"
+        );
+    }
 
     #[test]
     fn test_build_request_body_basic() {

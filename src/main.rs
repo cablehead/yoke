@@ -19,6 +19,7 @@ use yoagent::Agent;
 
 #[derive(clap::ValueEnum, Clone, Copy)]
 enum ThinkingArg {
+    Default,
     Off,
     Minimal,
     Low,
@@ -29,6 +30,7 @@ enum ThinkingArg {
 impl From<ThinkingArg> for ThinkingLevel {
     fn from(a: ThinkingArg) -> Self {
         match a {
+            ThinkingArg::Default => ThinkingLevel::Default,
             ThinkingArg::Off => ThinkingLevel::Off,
             ThinkingArg::Minimal => ThinkingLevel::Minimal,
             ThinkingArg::Low => ThinkingLevel::Low,
@@ -78,13 +80,19 @@ struct Cli {
     #[arg(long)]
     config: Option<std::path::PathBuf>,
 
-    /// Extended thinking budget: off, minimal, low, medium, high (default: off)
-    #[arg(long, value_enum, default_value_t = ThinkingArg::Off)]
+    /// Reasoning control: default (leave the model's default), off (disable where
+    /// supported), or minimal/low/medium/high effort.
+    #[arg(long, value_enum, default_value_t = ThinkingArg::Default)]
     thinking: ThinkingArg,
 
     /// Max agent turns before stopping. Number, or "unlimited" to disable.
     #[arg(long, default_value = "50")]
     max_turns: MaxTurns,
+
+    /// Max output tokens per response. Overrides the provider default (e.g. 4096
+    /// for OpenRouter). Raise for reasoning models or long structured output.
+    #[arg(long)]
+    max_tokens: Option<u32>,
 
     /// Optional trailing prompt appended as a final user message
     #[arg()]
@@ -507,6 +515,9 @@ fn normalize_model(provider: &str, raw: &serde_json::Value) -> Option<serde_json
             if let Some(v) = raw.get("context_length") {
                 out.insert("context_length".into(), v.clone());
             }
+            if let Some(v) = raw.get("pricing") {
+                out.insert("pricing".into(), v.clone());
+            }
         }
         "gemini" => {
             let name = raw.get("name")?.as_str()?;
@@ -635,6 +646,10 @@ async fn main() {
             ..ExecutionLimits::default()
         })
         .on_error(|e| eprintln!("error: {}", e));
+
+    if let Some(mt) = cli.max_tokens {
+        agent = agent.with_max_tokens(mt);
+    }
 
     if !system.is_empty() {
         agent = agent.with_system_prompt(system);

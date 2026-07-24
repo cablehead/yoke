@@ -77,7 +77,7 @@ impl Agent {
             system_prompt: String::new(),
             model: String::new(),
             api_key: String::new(),
-            thinking_level: ThinkingLevel::Off,
+            thinking_level: ThinkingLevel::Default,
             max_tokens: None,
             temperature: None,
             model_config: None,

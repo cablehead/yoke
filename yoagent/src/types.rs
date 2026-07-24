@@ -280,7 +280,10 @@ pub enum CacheStrategy {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ThinkingLevel {
+    /// Leave reasoning unset -- use the provider/model default.
     #[default]
+    Default,
+    /// Explicitly disable reasoning where the provider supports it.
     Off,
     Minimal,
     Low,
