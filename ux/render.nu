@@ -71,9 +71,13 @@ def render-usage [usage: record] {
     | flatten
 }
 
-# Render a user message card
-export def render-user [text: string] {
-  DIV {class: "card user"} $text
+# Render a user message card. An id anchors the turn so a TOC can scroll to it.
+export def render-user [text: string, --id: string = ""] {
+  if ($id | is-empty) {
+    DIV {class: "card user"} $text
+  } else {
+    DIV {class: "card user", id: $id} $text
+  }
 }
 
 # Render a tool result card. `args` is a compact rendering of the call's arguments
@@ -132,7 +136,11 @@ export def render-run [lines: list] {
     | flatten
     | reduce --fold {} {|c, acc| $acc | upsert $c.id (fmt-args $c.arguments?) }
 
-  $lines | each {|msg|
+  # Turn number for each user message, so its card can be anchored as #turn-N.
+  let user_positions = $lines | enumerate | where {|x| ($x.item.role?) == "user" } | get index
+
+  $lines | enumerate | each {|x|
+    let msg = $x.item
     match $msg.role? {
       "user" => {
         let text = $msg.content?
@@ -141,7 +149,8 @@ export def render-run [lines: list] {
           | get text?
           | compact
           | str join ""
-        render-user $text
+        let turn = $user_positions | enumerate | where {|u| $u.item == $x.index } | get -i 0.index | default 0
+        render-user $text --id $"turn-($turn)"
       }
       "assistant" => {
         # Skip assistant messages that only have tool calls (no text)

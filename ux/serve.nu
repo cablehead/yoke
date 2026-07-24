@@ -157,26 +157,20 @@ def render-model-picker [models: list, sort: string, dir: string] {
   ]
 }
 
-# Left pane: an index of conversation roots. Clicking one loads that thread.
-def thread-index [active: string] {
-  try { .cat -T chat.turn } catch { [] }
-    | group-by {|f| $f.meta?.session? | default $f.id }
-    | transpose sid frames
-    | each {|s|
-        let root = $s.frames | first
-        let lines = try { .cas $root.hash | lines | where {|l| $l != "" } | each { from json } } catch { [] }
-        let first_user = $lines | where {|m| $m.role? == "user" } | first
-        let label = $first_user.content? | default [] | where {|c| $c.type? == "text" } | get -i 0.text | default "(empty)"
-        {sid: $s.sid, head: ($s.frames | last | get id), label: $label}
-      }
-    | sort-by head | reverse
+# Left pane: a table of contents for the current thread -- one entry per turn,
+# clicking scrolls the output to that turn (#turn-N).
+def thread-toc [session: string] {
+  try { .cat -T chat.turn | where {|f| $f.meta?.session? == $session } } catch { [] }
+    | enumerate
     | each {|t|
-        let preview = if ($t.label | str length) > 42 { ($t.label | str substring 0..42) + "..." } else { $t.label }
+        let lines = try { .cas $t.item.hash | lines | where {|l| $l != "" } | each { from json } } catch { [] }
+        let user = $lines | where {|m| $m.role? == "user" } | first
+        let label = $user.content? | default [] | where {|c| $c.type? == "text" } | get -i 0.text | default "(turn)"
+        let preview = if ($label | str length) > 40 { ($label | str substring 0..40) + "..." } else { $label }
         BUTTON {
           class: "item",
           style: "display: block; width: 100%; text-align: left; padding: 0.5rem 0.75rem;",
-          "data-class": ("{active: $session == '" + $t.sid + "'}"),
-          "data-on:click": ("$session = '" + $t.sid + "'; @get('/load')")
+          "data-on:click": ("document.getElementById('turn-" + ($t.index | into string) + "')?.scrollIntoView({behavior: 'smooth', block: 'start'})")
         } $preview
       }
 }
@@ -207,8 +201,8 @@ def page [] {
             (A {href: "/"} "new")
             (A {href: "/code"} "source")
           ])
-          (HEADER {class: "pane-header"} "conversations")
-          (DIV {id: "thread-index", style: "overflow-y: auto; flex: 1;"} (thread-index $session))
+          (HEADER {class: "pane-header"} "turns")
+          (DIV {id: "thread-toc", style: "overflow-y: auto; flex: 1;"} (thread-toc $session))
         ])
         (SECTION {style: "display: flex; flex-direction: column; min-width: 0; min-height: 0; max-width: 48rem; width: 100%; margin: 0 auto; padding: 0 1rem;"} [
           (DIV {id: "output"} "")
@@ -305,19 +299,9 @@ def stream-ui [] {
         ({model: $selected, model_sort: $s.sort, model_sort_dir: $s.dir, model_sort_click: ""} | to datastar-patch-signals)
       ]
     } else if $e.topic == "chat-index" {
-      [ (thread-index ($e.value.session? | default "") | each {|b| $b.__html } | str join "" | to datastar-patch-elements --selector "#thread-index" --mode inner) ]
+      [ (thread-toc ($e.value.session? | default "") | each {|b| $b.__html } | str join "" | to datastar-patch-elements --selector "#thread-toc" --mode inner) ]
     } else { [] }
   } | flatten | to sse
-}
-
-# Load a stored conversation into #output (walks the thread from its head).
-def handle-load [req: record] {
-  let signals = $in | from datastar-signals $req
-  let session = $signals.session? | default ""
-  let turns = try { .cat -T chat.turn | where {|f| $f.meta?.session? == $session } } catch { [] }
-  let head = $turns | last | get -i id
-  let cards = if $head == null { [] } else { render-run (thread-lines $head) }
-  (DIV {id: "output"} ...$cards) | to datastar-patch-elements | to sse
 }
 
 # Walk the `continues` linked list back to the root, returning frames oldest -> newest.
@@ -461,7 +445,6 @@ def handle-sse [req: record] {
     (route {path: "/"} {|req ctx| page})
     (route {method: GET path: "/ui"} {|req ctx| stream-ui})
     (route {method: POST path: "/ui"} {|req ctx| handle-ui $req})
-    (route {method: GET path: "/load"} {|req ctx| handle-load $req})
     (route {path: "/runs"} {|req ctx| runs-page})
     (route {path-matches: "/run/:id"} {|req ctx| run-page $ctx.id})
     (route {path: "/code"} {|req ctx| code-page})
