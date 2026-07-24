@@ -63,10 +63,10 @@ def styles [] {
       /* multi-lane view: .reading is the main view; pulling away ($_zoom -> .pulled) swaps in
          .tree, the whole conversation as an aligned node tree. Both stay in the DOM. */
       .lane-wrap { height: 100%; }
-      .lane-wrap > .reading { height: 100%; display: flex; flex-direction: column; max-width: 48rem; margin: 0 auto; padding: 0 1rem; min-height: 0; }
-      .lane-wrap > .tree { display: none; }
-      .lane-wrap.pulled > .reading { display: none; }
-      .lane-wrap.pulled > .tree { display: grid; gap: 0.5rem; grid-auto-rows: min-content; align-content: start; justify-content: start; padding: 1rem; height: 100%; overflow: auto; }
+      .lane-wrap .reading { height: 100%; display: flex; flex-direction: column; max-width: 48rem; margin: 0 auto; padding: 0 1rem; min-height: 0; }
+      .lane-wrap .tree { display: none; }
+      .lane-wrap.pulled .reading { display: none; }
+      .lane-wrap.pulled .tree { display: grid; gap: 0.5rem; grid-auto-rows: min-content; align-content: start; justify-content: start; padding: 1rem; height: 100%; overflow: auto; }
       /* skins: appearance only */
       .pane-header { padding: 0.5rem 0.75rem; font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 0.05em; }
       .item { border: 0; border-bottom: 1px solid #f0f0f0; cursor: pointer; background: transparent; color: inherit; }
