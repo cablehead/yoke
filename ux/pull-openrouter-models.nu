@@ -16,7 +16,11 @@
 # AA data (c) Artificial Analysis - https://artificialanalysis.ai (attribution required).
 
 const SCRIPT_DIR = (path self | path dirname)
-const MAP_MODEL = "moonshotai/kimi-k2.7-code"
+# A non-reasoning model streams the whole mapping in one shot; run with --thinking off so
+# it never burns the budget on reasoning. (Reasoning models like kimi-k2.7-code balloon on
+# the full list and its reasoning is mandatory / can't be disabled.) north-mini-code:free is
+# a zero-cost swap with slightly lower recall.
+const MAP_MODEL = "openai/gpt-4.1-mini"
 const AA_BASE = "https://artificialanalysis.ai/api/v2/language/models/free"
 
 # Pull every page of the AA free language-models endpoint.
@@ -37,38 +41,35 @@ def fetch-aa [key: string] {
   }}
 }
 
-# Ask the LLM to fuzzy-match OpenRouter ids to AA slugs. Returns a record id -> slug|null.
-def generate-mapping [or_models: list, aa_models: list] {
-  let or_list = ($or_models | each {|m| $"($m.id)\t($m.name)" } | str join "\n")
-  let aa_list = ($aa_models | each {|m| $"($m.slug)\t($m.name)\t($m.creator)" } | str join "\n")
-  let prompt = ("You are matching OpenRouter model ids to Artificial Analysis (AA) model slugs.\n\n"
-    + "For each OpenRouter id in the first list, choose the single best-matching AA slug from the "
-    + "second list, or null if there is no confident match. Match by model family, version number, "
-    + "and vendor. Ignore suffixes like ':free', ':thinking', ':beta', ':nitro', ':online' and "
-    + "vendor path prefixes when comparing. Use only slugs that appear in the AA list; never invent one.\n\n"
-    + "Return ONLY a single JSON object mapping every OpenRouter id (exact string) to an AA slug "
-    + "string or null. No prose, no markdown fences.\n\n"
-    + "# OpenRouter ids (id<TAB>name)\n" + $or_list + "\n\n"
-    + "# AA slugs (slug<TAB>name<TAB>creator)\n" + $aa_list + "\n")
-
-  print $"    prompt ($prompt | str length) chars; calling ($MAP_MODEL) ..."
-  # kimi-k2.7-code has mandatory reasoning (can't --thinking off), so give it a high
-  # --max-tokens ceiling to leave room for reasoning AND the full mapping answer.
-  let raw = (yoke --provider openrouter --model $MAP_MODEL --tools none --max-tokens 40000 $prompt | complete)
-  if $raw.exit_code != 0 { error make {msg: $"yoke failed: ($raw.stderr)"} }
-
-  # Concatenate the final assistant text from the JSONL event stream.
-  let text = ($raw.stdout | lines | each {|l| try { $l | from json } catch { null }} | compact
+# Pull the final assistant text out of a yoke JSONL stream and parse it as a JSON object.
+def parse-mapping-json [stdout: string] {
+  let text = ($stdout | lines | each {|l| try { $l | from json } catch { null }} | compact
     | where {|e| ($e.role? | default "") == "assistant" }
     | each {|e| $e.content? | default [] | where {|c| ($c.type? | default "") == "text" } | get text? | compact | str join "" }
     | str join "")
-
-  # Strip any stray prose/fences: keep the outermost { ... }.
   let json_text = ($text | str replace -r '(?s)^[^{]*(\{.*\})[^}]*$' '$1')
-  try { $json_text | from json } catch {
-    print $"    WARN: could not parse mapping JSON \(assistant text was ($text | str length) chars\)"
-    {}
-  }
+  let parsed = try { $json_text | from json } catch { {} }
+  # Always return a record so callers can merge safely (a bad batch parses to null/empty).
+  if (($parsed | describe) | str starts-with "record") { $parsed } else { {} }
+}
+
+# Fuzzy-match OpenRouter ids to AA slugs in one shot. Returns a record id -> slug|null.
+# A non-reasoning model run with --thinking off streams the whole mapping directly.
+def generate-mapping [or_models: list, aa_models: list] {
+  let or_list = ($or_models | each {|m| $"($m.id)\t($m.name)" } | str join "\n")
+  let aa_list = ($aa_models | each {|m| $"($m.slug)\t($m.name)\t($m.creator)" } | str join "\n")
+  let prompt = ("Match each OpenRouter model id to the single best-matching Artificial Analysis "
+    + "(AA) slug, or null if there is no confident match. Match by model family, version, and "
+    + "vendor; ignore suffixes like ':free'/':thinking' and vendor path prefixes. Use only slugs "
+    + "from the AA list; never invent one.\n\n"
+    + "Return ONLY one JSON object mapping every OpenRouter id (exact string) to an AA slug string "
+    + "or null. No prose, no markdown fences.\n\n"
+    + "# OpenRouter ids (id<TAB>name)\n" + $or_list + "\n\n"
+    + "# AA slugs (slug<TAB>name<TAB>creator)\n" + $aa_list)
+  print $"    ($MAP_MODEL): ($or_models | length) ids x ($aa_models | length) slugs, ($prompt | str length) chars ..."
+  let raw = (yoke --provider openrouter --model $MAP_MODEL --tools none --thinking off --max-tokens 20000 $prompt | complete)
+  if $raw.exit_code != 0 { error make {msg: $"yoke failed: ($raw.stderr)"} }
+  parse-mapping-json $raw.stdout
 }
 
 def main [] {
