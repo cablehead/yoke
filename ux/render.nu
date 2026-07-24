@@ -1,4 +1,4 @@
-# render-gemini.nu - render yoke JSONL into HTML views
+# render.nu - render yoke JSONL event stream into HTML cards
 #
 # Processes a stream of yoke events and produces Datastar-compatible
 # patch-elements records. Two views:
@@ -9,21 +9,6 @@
 
 use http-nu/datastar *
 use http-nu/html *
-
-# Render the in-progress streaming view
-export def render-streaming [text: string] {
-  let rendered = if ($text | is-empty) {
-    SPAN {style: "color: #999;"} "thinking..."
-  } else {
-    $text | .md
-  }
-  DIV {id: "output"} (
-    DIV {style: "padding: 1rem; background: #f5f5f5; border-radius: 0.5rem; min-height: 4rem;"} [
-      $rendered
-      (SPAN {style: "display: inline-block; width: 0.5rem; height: 1rem; background: #333; animation: blink 1s step-end infinite;"} "")
-    ]
-  )
-}
 
 # Render sources from metadata (handles both Gemini grounding and Anthropic citations)
 def render-sources [metadata: record] {
@@ -86,44 +71,20 @@ def render-usage [usage: record] {
     | flatten
 }
 
-# Render the finished response card
-export def render-finished [
-  text: string
-  model: string
-  usage: record
-  --metadata: record
-] {
-  let rendered = $text | .md
-
-  let sources = if $metadata != null {
-    render-sources $metadata
-  } else {
-    null
-  }
-
-  DIV {id: "output"} (
-    DIV {style: "background: #fff; border: 1px solid #e0e0e0; border-radius: 0.5rem; overflow: hidden;"} [
-      (DIV {style: "padding: 1rem;"} $rendered)
-      ...( if $sources != null { [$sources] } else { [] } )
-      (DIV {style: "padding: 0.5rem 1rem; background: #f8f8f8; border-top: 1px solid #e0e0e0; font-size: 0.75rem; display: flex; justify-content: space-between; align-items: center;"} [
-        (SPAN {style: "color: #888;"} $model)
-        (SPAN ...(render-usage $usage))
-      ])
-    ]
-  )
-}
-
 # Render a user message card
 export def render-user [text: string] {
-  DIV {style: "background: #e8f0fe; border: 1px solid #c4d8f0; border-radius: 0.5rem; padding: 0.75rem 1rem; margin-bottom: 0.75rem; font-size: 0.9375rem;"} $text
+  DIV {class: "card user"} $text
 }
 
-# Render a tool result card
-export def render-tool-result [tool_name: string, content: string, --is-error] {
-  let border = if $is_error { "border-left: 3px solid #e74c3c;" } else { "border-left: 3px solid #27ae60;" }
-  let bg = if $is_error { "background: #fdf0ef;" } else { "background: #f0faf4;" }
-  DIV {style: $"($bg) ($border) border-radius: 0.25rem; padding: 0.5rem 0.75rem; margin-bottom: 0.75rem; font-size: 0.8125rem;"} [
-    (DIV {style: "font-weight: 600; font-size: 0.75rem; color: #555; margin-bottom: 0.25rem;"} $tool_name)
+# Render a tool result card. `args` is a compact rendering of the call's arguments
+# (e.g. "path: README.md") so you can see what the tool was invoked with.
+export def render-tool-result [tool_name: string, content: string, --args: string = "", --is-error] {
+  let cls = if $is_error { "card tool error" } else { "card tool" }
+  DIV {class: $cls} [
+    (DIV {style: "font-weight: 600; font-size: 0.75rem; color: #555; margin-bottom: 0.25rem;"} [
+      (SPAN $tool_name)
+      ...(if ($args | is-not-empty) { [(SPAN {style: "font-weight: 400; color: #999; margin-left: 0.5rem; font-family: ui-monospace, monospace;"} $args)] } else { [] })
+    ])
     (PRE {style: "margin: 0; white-space: pre-wrap; font-size: 0.75rem; max-height: 12rem; overflow-y: auto;"} $content)
   ]
 }
@@ -147,18 +108,30 @@ export def render-assistant [msg: record] {
     null
   }
 
-  DIV {style: "background: #fff; border: 1px solid #e0e0e0; border-radius: 0.5rem; overflow: hidden; margin-bottom: 0.75rem;"} [
-    (DIV {style: "padding: 1rem;"} $rendered)
+  DIV {class: "card"} [
+    $rendered
     ...( if $sources != null { [$sources] } else { [] } )
-    (DIV {style: "padding: 0.5rem 1rem; background: #f8f8f8; border-top: 1px solid #e0e0e0; font-size: 0.75rem; display: flex; justify-content: space-between; align-items: center;"} [
-      (SPAN {style: "color: #888;"} $model)
+    (DIV {style: "display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid #eee; font-size: 0.75rem; color: #888;"} [
+      (SPAN $model)
       (SPAN ...(render-usage $usage))
     ])
   ]
 }
 
+# Compact one-line rendering of a tool call's arguments, e.g. "path: Cargo.toml".
+def fmt-args [args: any] {
+  $args | default {} | items {|k v| $"($k): ($v)" } | str join ", "
+}
+
 # Render a complete run as a stack of cards from stored JSONL lines
 export def render-run [lines: list] {
+  # Map each tool call id -> its compact args, sourced from the assistant messages.
+  let call_args = $lines
+    | where {|m| $m.role? == "assistant" }
+    | each {|m| $m.content? | default [] | where {|c| $c.type? == "toolCall" } }
+    | flatten
+    | reduce --fold {} {|c, acc| $acc | upsert $c.id (fmt-args $c.arguments?) }
+
   $lines | each {|msg|
     match $msg.role? {
       "user" => {
@@ -184,6 +157,7 @@ export def render-run [lines: list] {
       }
       "toolResult" => {
         let tool_name = $msg.toolName? | default "tool"
+        let args = $call_args | get -o ($msg.toolCallId? | default "") | default ""
         let content = $msg.content?
           | default []
           | where { $in.type? == "text" }
@@ -192,9 +166,9 @@ export def render-run [lines: list] {
           | str join "\n"
         let is_error = $msg.isError? | default false
         if $is_error {
-          render-tool-result $tool_name $content --is-error
+          render-tool-result $tool_name $content --args $args --is-error
         } else {
-          render-tool-result $tool_name $content
+          render-tool-result $tool_name $content --args $args
         }
       }
       _ => null

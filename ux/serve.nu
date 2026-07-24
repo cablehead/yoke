@@ -11,7 +11,7 @@ use http-nu/router *
 use http-nu/datastar *
 use http-nu/html *
 
-source render-gemini.nu
+source render.nu
 
 const DEFAULT_PROVIDER = "gemini"
 const DEFAULT_MODEL = "gemini-3-flash-preview"
@@ -46,23 +46,31 @@ def styles [] {
   [
     (STYLE $theme_css)
     (STYLE "
-      body { font-family: system-ui, sans-serif; max-width: 48rem; margin: 2rem auto; padding: 0 1rem; }
-      input[type=text], select { padding: 0.5rem; font-size: 0.8125rem; border: 1px solid #ccc; border-radius: 0.25rem; }
-      button { padding: 0.5rem 1rem; font-size: 1rem; cursor: pointer; border-radius: 0.25rem; border: 1px solid #ccc; }
-      nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
-      nav a { font-size: 0.875rem; color: #666; text-decoration: none; }
-      nav a:hover { color: #333; }
-      @keyframes blink { 50% { opacity: 0; } }
+      /* raw tags, styled once. layout stays inline on semantic tags (stacks.nu). */
+      body { font-family: system-ui, sans-serif; margin: 0; height: 100vh; }
+      a { color: #1a4b8c; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      button { font: inherit; cursor: pointer; }
+      input, select { font: inherit; }
+      input[type=text], select { padding: 0.5rem; border: 1px solid #ccc; border-radius: 0.25rem; }
       pre { border-radius: 0.5rem; padding: 1rem; overflow-x: auto; }
       code { font-size: 0.8125rem; }
-      .run-item { padding: 0.75rem; border-bottom: 1px solid #eee; cursor: pointer; }
-      .run-item:hover { background: #f8f8f8; }
-      .run-item .prompt { font-size: 0.875rem; }
-      .run-item .meta { font-size: 0.75rem; color: #888; margin-top: 0.25rem; }
-      .config-row { display: flex; gap: 0.5rem; align-items: center; font-size: 0.75rem; color: #888; margin-bottom: 0.75rem; }
-      .model-row { cursor: pointer; border-bottom: 1px solid #f0f0f0; }
-      .model-row:hover:not(.selected) { background: #f8f8f8; }
-      .model-row.selected { background: #e8f0fe; color: #1a4b8c; }
+      table { width: 100%; border-collapse: collapse; font-family: ui-monospace, monospace; font-size: 0.75rem; }
+      th { text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid #ccc; position: sticky; top: 0; background: #fff; }
+      td { padding: 0.3rem 0.5rem; }
+      #output { flex: 1; overflow-y: auto; padding: 1rem 0; }
+      @keyframes blink { 50% { opacity: 0; } }
+      /* skins: appearance only */
+      .pane-header { padding: 0.5rem 0.75rem; font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 0.05em; }
+      .item { border: 0; border-bottom: 1px solid #f0f0f0; cursor: pointer; background: transparent; color: inherit; }
+      .item:hover:not(.active) { background: #f4f4f4; }
+      .item.active { background: #e8f0fe; color: #1a4b8c; }
+      .card { border: 1px solid #e0e0e0; border-radius: 0.5rem; padding: 0.75rem 1rem; margin-bottom: 0.75rem; background: #fff; overflow: hidden; }
+      .card.user { background: #e8f0fe; border-color: #c4d8f0; }
+      .card.tool { border: none; border-left: 3px solid #27ae60; border-radius: 0.25rem; background: #f0faf4; padding: 0.5rem 0.75rem; font-size: 0.8125rem; }
+      .card.tool.error { border-left-color: #e74c3c; background: #fdf0ef; }
+      .modal .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); }
+      .modal .dialog { position: fixed; top: 4vh; bottom: 4vh; left: 50%; transform: translateX(-50%); width: min(72rem, 96vw); background: #fff; border-radius: 0.5rem; box-shadow: 0 10px 40px rgba(0,0,0,0.25); display: flex; flex-direction: column; }
     ")
   ]
 }
@@ -124,11 +132,61 @@ def render-model-select [models: list, sort: string, dir: string] {
   {__html: $html}
 }
 
+# The model picker modal. Open/close is a local $_pickerOpen signal; the model list
+# inside #model-list is projected over the /ui connection.
+def render-model-picker [models: list, sort: string, dir: string] {
+  let providers = available-providers
+  let default_provider = $providers | get -i 0 | get -i name | default $DEFAULT_PROVIDER
+  DIV {id: "model-picker", class: "modal", "data-show": "$_pickerOpen", style: "display: none;"} [
+    (DIV {class: "backdrop", "data-on:click": "$_pickerOpen = false"} "")
+    (DIV {class: "dialog"} [
+      (DIV {style: "display: flex; gap: 0.5rem; align-items: center; padding: 0.75rem 1rem; border-bottom: 1px solid #eee;"} [
+        (SELECT {"data-bind": "provider", "data-on:change": "@post('/ui')"} {
+          $providers | each {|p|
+            if $p.name == $default_provider {
+              OPTION {value: $p.name, selected: true} $p.label
+            } else {
+              OPTION {value: $p.name} $p.label
+            }
+          }
+        })
+        (BUTTON {style: "margin-left: auto;", "data-on:click": "$_pickerOpen = false"} "close")
+      ])
+      (DIV {style: "overflow: auto; padding: 0 1rem 1rem;"} (DIV {id: "model-list"} (render-model-select $models $sort $dir)))
+    ])
+  ]
+}
+
+# Left pane: an index of conversation roots. Clicking one loads that thread.
+def thread-index [active: string] {
+  try { .cat -T chat.turn } catch { [] }
+    | group-by {|f| $f.meta?.session? | default $f.id }
+    | transpose sid frames
+    | each {|s|
+        let root = $s.frames | first
+        let lines = try { .cas $root.hash | lines | where {|l| $l != "" } | each { from json } } catch { [] }
+        let first_user = $lines | where {|m| $m.role? == "user" } | first
+        let label = $first_user.content? | default [] | where {|c| $c.type? == "text" } | get -i 0.text | default "(empty)"
+        {sid: $s.sid, head: ($s.frames | last | get id), label: $label}
+      }
+    | sort-by head | reverse
+    | each {|t|
+        let preview = if ($t.label | str length) > 42 { ($t.label | str substring 0..42) + "..." } else { $t.label }
+        BUTTON {
+          class: "item",
+          style: "display: block; width: 100%; text-align: left; padding: 0.5rem 0.75rem;",
+          "data-class": ("{active: $session == '" + $t.sid + "'}"),
+          "data-on:click": ("$session = '" + $t.sid + "'; @get('/load')")
+        } $preview
+      }
+}
+
 def page [] {
   let providers = available-providers
   let default_provider = $providers | get -i 0 | get -i name | default $DEFAULT_PROVIDER
   let models = sort-filter-models (with-aa (fetch-models $default_provider)) "" $DEFAULT_SORT $DEFAULT_SORT_DIR
   let default_model = $models | get -i 0.id | default $DEFAULT_MODEL
+  let session = random uuid
 
   HTML (
     HEAD
@@ -139,47 +197,30 @@ def page [] {
       ...(styles)
   ) (
     BODY {
-      "data-signals": ("{ model: '" + $default_model + "', model_sort: '" + $DEFAULT_SORT + "', model_sort_dir: '" + $DEFAULT_SORT_DIR + "', model_sort_click: '' }")
-    }
-      (nav-bar (A {href: "/runs"} "history") (A {href: "/code"} "source"))
-      (DIV {style: "display: flex; gap: 0.5rem; margin-bottom: 0.75rem;"}
-        (INPUT {
-          type: "text",
-          placeholder: "ask something...",
-          "data-bind": "prompt",
-          value: "",
-          style: "flex: 1; font-size: 1rem;"
-        })
-        (BUTTON {
-          "data-indicator": "_sending",
-          "data-attr:disabled": "$_sending",
-          "data-on:click": "!$_sending && $prompt && @get('/sse')"
-        } "send")
-      )
-      (DIV {class: "config-row"}
-        (SELECT {
-          "data-bind": "provider",
-          "data-on:change": "@get('/models')"
-        } {
-          $providers | each {|p|
-            if $p.name == $default_provider {
-              OPTION {value: $p.name, selected: true} $p.label
-            } else {
-              OPTION {value: $p.name} $p.label
-            }
-          }
-        })
-        (INPUT {
-          type: "text",
-          placeholder: "filter models...",
-          "data-bind": "model_filter",
-          "data-on:input__debounce.60ms": "@get('/models')",
-          value: "",
-          style: "flex: 1;"
-        })
-      )
-      (DIV {id: "model-select-wrapper", style: "margin-bottom: 0.75rem; overflow-x: auto;"} (render-model-select $models $DEFAULT_SORT $DEFAULT_SORT_DIR))
-      (DIV {id: "output"} "")
+      "data-signals": ("{ model: '" + $default_model + "', provider: '" + $default_provider + "', model_filter: '', model_sort: '" + $DEFAULT_SORT + "', model_sort_dir: '" + $DEFAULT_SORT_DIR + "', model_sort_click: '', _pickerOpen: false, session: '" + $session + "' }")
+      "data-init": "@get('/ui')"
+    } [
+      (DIV {style: "display: grid; grid-template-columns: 16rem 1fr; height: 100vh;"} [
+        (ASIDE {style: "display: flex; flex-direction: column; border-right: 1px solid #eee; background: #fafafa; overflow: hidden;"} [
+          (DIV {style: "display: flex; gap: 1rem; align-items: baseline; padding: 0.75rem;"} [
+            (H1 {style: "font-size: 1rem; margin: 0;"} "yoke")
+            (A {href: "/"} "new")
+            (A {href: "/code"} "source")
+          ])
+          (HEADER {class: "pane-header"} "conversations")
+          (DIV {id: "thread-index", style: "overflow-y: auto; flex: 1;"} (thread-index $session))
+        ])
+        (SECTION {style: "display: flex; flex-direction: column; min-width: 0; min-height: 0; max-width: 48rem; width: 100%; margin: 0 auto; padding: 0 1rem;"} [
+          (DIV {id: "output"} "")
+          (DIV {style: "position: sticky; bottom: 0; background: #fff; display: flex; gap: 0.5rem; align-items: center; padding: 0.75rem 0; border-top: 1px solid #eee;"} [
+            (BUTTON {style: "max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;", "data-on:click": "$_pickerOpen = true", "data-text": "'model: ' + $model"} "model")
+            (INPUT {type: "text", placeholder: "ask something...", "data-bind": "prompt", style: "flex: 1;"})
+            (BUTTON {"data-indicator": "_sending", "data-attr:disabled": "$_sending", "data-on:click": "!$_sending && $prompt && @get('/sse'); $prompt = ''"} "send")
+          ])
+        ])
+      ])
+      (render-model-picker $models $DEFAULT_SORT $DEFAULT_SORT_DIR)
+    ]
   )
 }
 
@@ -220,10 +261,10 @@ def fetch-models [provider: string] {
   }
 }
 
-def handle-models [req: record] {
+# Write side: a picker interaction (provider/filter/sort) publishes the new query
+# to the bus. The /ui connection projects the result. Returns 204 (no direct patch).
+def handle-ui [req: record] {
   let signals = $in | from datastar-signals $req
-  let provider = $signals.provider? | default $DEFAULT_PROVIDER
-  let filter = $signals.model_filter? | default ""
   let click = $signals.model_sort_click? | default ""
   let cur_sort = $signals.model_sort? | default $DEFAULT_SORT
   let cur_dir = $signals.model_sort_dir? | default $DEFAULT_SORT_DIR
@@ -238,40 +279,80 @@ def handle-models [req: record] {
     "asc"
   }
 
-  let models = sort-filter-models (with-aa (fetch-models $provider)) $filter $sort $dir
-  let current = $signals.model? | default ""
-  let selected = if ($current != "") and ($current in ($models | get id)) {
-    $current
-  } else {
-    $models | get -i 0.id | default ""
-  }
+  {
+    provider: ($signals.provider? | default $DEFAULT_PROVIDER)
+    filter: ($signals.model_filter? | default "")
+    sort: $sort
+    dir: $dir
+    model: ($signals.model? | default "")
+  } | .bus pub "model-picker"
 
-  [
-    (render-model-select $models $sort $dir
-      | to datastar-patch-elements --selector "#model-select-wrapper" --mode inner)
-    ({model: $selected, model_sort: $sort, model_sort_dir: $dir, model_sort_click: ""} | to datastar-patch-signals)
-  ] | to sse
+  null | metadata set { merge {'http.response': {status: 204}} }
+}
+
+# Read side: one long-lived connection projecting the model list into #model-list
+# whenever the picker query changes.
+# The single home-page connection: projects the model list (on picker changes) and the
+# thread index (when a turn is saved), both driven off the bus.
+def stream-ui [] {
+  .bus sub | each {|e|
+    if $e.topic == "model-picker" {
+      let s = $e.value
+      let models = sort-filter-models (with-aa (fetch-models $s.provider)) $s.filter $s.sort $s.dir
+      let selected = if (($s.model | default "") in ($models | get id)) { $s.model } else { $models | get -i 0.id | default "" }
+      [
+        (render-model-select $models $s.sort $s.dir | to datastar-patch-elements --selector "#model-list" --mode inner)
+        ({model: $selected, model_sort: $s.sort, model_sort_dir: $s.dir, model_sort_click: ""} | to datastar-patch-signals)
+      ]
+    } else if $e.topic == "chat-index" {
+      [ (thread-index ($e.value.session? | default "") | each {|b| $b.__html } | str join "" | to datastar-patch-elements --selector "#thread-index" --mode inner) ]
+    } else { [] }
+  } | flatten | to sse
+}
+
+# Load a stored conversation into #output (walks the thread from its head).
+def handle-load [req: record] {
+  let signals = $in | from datastar-signals $req
+  let session = $signals.session? | default ""
+  let turns = try { .cat -T chat.turn | where {|f| $f.meta?.session? == $session } } catch { [] }
+  let head = $turns | last | get -i id
+  let cards = if $head == null { [] } else { render-run (thread-lines $head) }
+  (DIV {id: "output"} ...$cards) | to datastar-patch-elements | to sse
+}
+
+# Walk the `continues` linked list back to the root, returning frames oldest -> newest.
+def thread [id: any] {
+  if $id == null { return [] }
+  let f = .get $id
+  (thread ($f.meta?.continues?)) | append $f
+}
+
+# Rebuild a thread's full message list from its head frame id.
+def thread-lines [id: string] {
+  thread $id | each {|f| .cas $f.hash } | str join "\n" | lines | where {|l| $l != "" } | each { from json }
 }
 
 def runs-page [] {
-  let runs = .cat -T run | reverse | each {|frame|
-    let content = .cas $frame.hash
-    let lines = $content | lines | each { from json }
+  # One entry per conversation: the head (latest turn) of each session's thread.
+  let heads = try { .cat -T chat.turn } catch { [] }
+    | group-by {|f| $f.meta?.session? | default $f.id }
+    | values | each { last } | sort-by id | reverse
+  let runs = $heads | each {|head|
+    let lines = thread-lines $head.id
     let user_msg = $lines | where { $in.role? == "user" } | first
-    let assistant_msg = $lines | where { $in.role? == "assistant" } | get -i 0
     let prompt = $user_msg.content?
       | default []
       | where { $in.type? == "text" }
       | get -i 0
       | get -i text
       | default "(no prompt)"
-    let model = $assistant_msg.model? | default ""
+    let model = $head.meta?.model? | default ""
     let preview = if ($prompt | str length) > 80 {
       ($prompt | str substring 0..80) + "..."
     } else {
       $prompt
     }
-    {id: $frame.id, prompt: $preview, model: $model}
+    {id: $head.id, prompt: $preview, model: $model}
   }
 
   HTML (
@@ -296,9 +377,7 @@ def runs-page [] {
 }
 
 def run-page [id: string] {
-  let frame = .get $id
-  let content = .cas $frame.hash
-  let lines = $content | lines | each { from json }
+  let lines = thread-lines $id
 
   let cards = render-run $lines
 
@@ -345,18 +424,33 @@ def handle-sse [req: record] {
   let prompt = $signals.prompt? | default ""
   let provider = $signals.provider? | default $DEFAULT_PROVIDER
   let model = $signals.model? | default $DEFAULT_MODEL
+  let session = $signals.session? | default "adhoc"
 
   if ($prompt | is-empty) {
     {data: "no prompt"} | to sse
     return
   }
 
-  yoke --provider $provider --model $model --tools code,web_search $prompt
+  # This conversation's turns (a chat.turn thread), oldest to newest. Each frame holds only
+  # that turn's new role messages; concatenating them rebuilds the full context.
+  let turns = try { .cat -T chat.turn | where {|f| $f.meta?.session? == $session } } catch { [] }
+  let parent = $turns | last | get -i id
+  let prior = $turns | each {|f| .cas $f.hash } | str join "\n"
+  let prior_roles = if ($prior | str trim | is-empty) { 0 } else {
+    $prior | lines | where {|l| (try { $l | from json | get -i role } catch { null }) != null } | length
+  }
+
+  # yoke echoes the prior context verbatim then the new turn; skip the echoed prior so each
+  # frame stores just this turn, linked to its parent via `continues` (the xs thread model).
+  $prior
+    | yoke --provider $provider --model $model --tools code,web_search $prompt
     | lines
     | tee {
         where { ($in | from json).role? != null }
+        | skip $prior_roles
         | str join "\n"
-        | .append run
+        | .append chat.turn --meta {session: $session, continues: $parent, model: $model}
+        {session: $session} | .bus pub "chat-index"
       }
     | render yoke-stream -m $model
     | to sse
@@ -365,7 +459,9 @@ def handle-sse [req: record] {
 {|req|
   dispatch $req [
     (route {path: "/"} {|req ctx| page})
-    (route {path: "/models"} {|req ctx| handle-models $req})
+    (route {method: GET path: "/ui"} {|req ctx| stream-ui})
+    (route {method: POST path: "/ui"} {|req ctx| handle-ui $req})
+    (route {method: GET path: "/load"} {|req ctx| handle-load $req})
     (route {path: "/runs"} {|req ctx| runs-page})
     (route {path-matches: "/run/:id"} {|req ctx| run-page $ctx.id})
     (route {path: "/code"} {|req ctx| code-page})

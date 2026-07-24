@@ -1,24 +1,33 @@
-<table id="model-select" style="width: 100%; border-collapse: collapse; font-family: ui-monospace, monospace; font-size: 0.75rem;">
+<table>
   <thead>
     <tr>
 {%- for c in cols %}
-  {%- if c.sortable %}
-      <th style="text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid #ccc; background: #fff; position: sticky; top: 0; cursor: pointer; user-select: none;" data-on:click="$model_sort_click = '{{ c.key }}'; @get('/models')">{{ c.label }}{{ c.arrow }}</th>
+  {%- if loop.first %}
+      <td><input id="model-filter" type="text" placeholder="filter..." data-bind="model_filter" data-on:input__debounce.200ms="@post('/ui')" style="width: 100%;"></td>
   {%- else %}
-      <th style="text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid #ccc; background: #fff; position: sticky; top: 0;">{{ c.label }}</th>
+      <td></td>
+  {%- endif %}
+{%- endfor %}
+    </tr>
+    <tr>
+{%- for c in cols %}
+  {%- if c.sortable %}
+      <th style="cursor: pointer; user-select: none;" data-on:click="$model_sort_click = '{{ c.key }}'; @post('/ui')">{{ c.label }}{{ c.arrow }}</th>
+  {%- else %}
+      <th>{{ c.label }}</th>
   {%- endif %}
 {%- endfor %}
     </tr>
   </thead>
   <tbody>
 {%- for m in rows %}
-    <tr class="model-row" data-class="{selected: $model == '{{ m.id }}'}" data-on:click="$model = '{{ m.id }}'">
-      <td style="padding: 0.3rem 0.5rem;"><div style="white-space: nowrap;">{{ m.id }}</div><div style="font-size: 0.6875rem; color: #888; white-space: nowrap;">{{ m.name }}</div></td>
-      <td style="padding: 0.3rem 0.5rem; text-align: right; white-space: nowrap;">{{ m.intelligence }}</td>
-      <td style="padding: 0.3rem 0.5rem; text-align: right; white-space: nowrap;">{{ m.context }}</td>
-      <td style="padding: 0.3rem 0.5rem; text-align: right; white-space: nowrap;">{{ m.price_in }}</td>
-      <td style="padding: 0.3rem 0.5rem; text-align: right; white-space: nowrap;">{{ m.price_out }}</td>
-      <td style="padding: 0.3rem 0.5rem; white-space: nowrap;">{{ m.created }}</td>
+    <tr class="item" data-class="{active: $model == '{{ m.id }}'}" data-on:click="$model = '{{ m.id }}'; $_pickerOpen = false">
+      <td><div style="white-space: nowrap;">{{ m.id }}</div><div style="font-size: 0.6875rem; color: #888;">{{ m.name }}</div></td>
+      <td style="text-align: right; white-space: nowrap;">{{ m.intelligence }}</td>
+      <td style="text-align: right; white-space: nowrap;">{{ m.context }}</td>
+      <td style="text-align: right; white-space: nowrap;">{{ m.price_in }}</td>
+      <td style="text-align: right; white-space: nowrap;">{{ m.price_out }}</td>
+      <td style="white-space: nowrap;">{{ m.created }}</td>
     </tr>
 {%- endfor %}
   </tbody>
