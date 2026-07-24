@@ -60,15 +60,13 @@ def styles [] {
       td { padding: 0.3rem 0.5rem; }
       #output { flex: 1; overflow-y: auto; padding: 1rem 0; }
       @keyframes blink { 50% { opacity: 0; } }
-      /* multi-lane view: the reading lane (.focus) is the main view; peers pull into
-         view when the row is .pulled. Peers stay in the DOM so it is a pure CSS zoom. */
-      .lane-row { display: flex; height: 100%; overflow-x: auto; }
-      .lane-row > .focus { flex: none; width: 100%; max-width: 48rem; margin: 0 auto; display: flex; flex-direction: column; min-height: 0; padding: 0 1rem; transition: max-width .2s ease, margin .2s ease; }
-      .lane-row > .peer { flex: none; width: 0; overflow: hidden; opacity: 0; cursor: pointer; white-space: nowrap; align-self: center; border: 1px solid #eee; border-radius: 0.5rem; transition: width .2s ease, opacity .2s ease, padding .2s ease; }
-      .lane-row > .peer:hover { background: #f4f4f4; }
-      .lane-row.pulled { gap: 0.75rem; padding: 1rem 0.75rem; align-items: flex-start; }
-      .lane-row.pulled > .focus { max-width: 34rem; margin: 0; }
-      .lane-row.pulled > .peer { width: 13rem; opacity: 0.85; padding: 0.75rem; }
+      /* multi-lane view: .reading is the main view; pulling away ($_zoom -> .pulled) swaps in
+         .tree, the whole conversation as an aligned node tree. Both stay in the DOM. */
+      .lane-wrap { height: 100%; }
+      .lane-wrap > .reading { height: 100%; display: flex; flex-direction: column; max-width: 48rem; margin: 0 auto; padding: 0 1rem; min-height: 0; }
+      .lane-wrap > .tree { display: none; }
+      .lane-wrap.pulled > .reading { display: none; }
+      .lane-wrap.pulled > .tree { display: grid; gap: 0.5rem; grid-auto-rows: min-content; align-content: start; justify-content: start; padding: 1rem; height: 100%; overflow: auto; }
       /* skins: appearance only */
       .pane-header { padding: 0.5rem 0.75rem; font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 0.05em; }
       .item { border: 0; border-bottom: 1px solid #f0f0f0; cursor: pointer; background: transparent; color: inherit; }
@@ -181,37 +179,45 @@ def leaves-for [session: any] {
   $frames | where {|f| $f.id not-in $parents }
 }
 
-# One compact peer lane: a sibling branch shown as its turn labels, trunk grey and divergent
-# tail bold. Clicking it selects that branch -- it becomes the reading lane and pulls back in.
-def peer-lane [leaf: record, current_ids: list] {
-  let turns = thread $leaf.id | each {|f|
-    let shared = ($f.id in $current_ids)
-    let label = turn-label $f
-    let preview = if ($label | str length) > 24 { ($label | str substring 0..24) + "..." } else { $label }
-    DIV {style: ("padding: 0.2rem 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; " + (if $shared { "color: #bbb;" } else { "color: #1a1a1a; font-weight: 600;" }))} $preview
-  }
-  DIV {class: "peer", "data-on:click": ("$head = '" + $leaf.id + "'; $_zoom = false; @get('/load')")} $turns
-}
-
-# The multi-lane view IS the main view. The current lane holds the live reading component
-# (cards + composer); its sibling leaves render as compact peer lanes beside it. Pulling away
-# ($_zoom, a client-side CSS class) shrinks the reading lane so the peers come into view;
-# clicking a peer selects it. Peers stay in the DOM, so the pull-away is a pure CSS transition.
-def lanes-view [head: string] {
+# The pulled-out overview: the whole conversation drawn as a tree. Every lane (leaf tip) is a
+# column; each turn is a node placed at grid-row = its depth, so shared ancestors line up and
+# a trunk node spans the columns of all lanes that descend from it -- shared then branching.
+# Nodes on the current thread are highlighted. Clicking a node selects it as the head.
+def lanes-tree [head: string] {
   let session = try { (.get $head).meta?.session? } catch { null }
   let leaves = if ($head | is-empty) { [] } else { leaves-for $session }
-  let focus_id = $leaves | where {|l| $head in (thread $l.id | get id) } | get -i 0.id
+  if ($leaves | is-empty) { return (DIV {class: "tree"} "") }
   let current_ids = thread $head | get id
-  let lanes = $leaves | each {|leaf|
-    if $leaf.id == $focus_id {
-      DIV {class: "focus"} (read-view $head)
-    } else {
-      peer-lane $leaf $current_ids
-    }
+  # Column order: sorting leaves by their root->tip id path groups shared prefixes (DFS order),
+  # so a shared ancestor's descendant lanes are contiguous and its node can span them.
+  let ordered = $leaves | each {|l| {leaf: $l, path: (thread $l.id)} } | sort-by {|x| $x.path | get id | str join "/" }
+  let n = $ordered | length
+  # Every (node, column) placement, then folded to one cell per node spanning its columns.
+  let cells = $ordered | enumerate | each {|col|
+    $col.item.path | enumerate | each {|d| {id: $d.item.id, frame: $d.item, depth: $d.index, col: $col.index} }
+  } | flatten | group-by id | items {|id grp|
+    {id: $id, frame: ($grp | first | get frame), depth: ($grp | first | get depth), min: ($grp | get col | math min), max: ($grp | get col | math max)}
+  } | each {|nd|
+    let is_current = ($nd.id in $current_ids)
+    let skin = if $is_current { "background: #eef4fc; border-color: #1a4b8c; color: #1a4b8c; font-weight: 600;" } else { "background: #fff; border-color: #eee; color: #555;" }
+    let place = "grid-row: " + (($nd.depth + 1) | into string) + "; grid-column: " + (($nd.min + 1) | into string) + " / span " + (($nd.max - $nd.min + 1) | into string) + ";"
+    DIV {
+      style: ("border: 1px solid; border-radius: 0.4rem; padding: 0.4rem 0.6rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; " + $place + $skin),
+      "data-on:click": ("$head = '" + $nd.id + "'; $_zoom = false; @get('/load')")
+    } (turn-label $nd.frame)
   }
-  # No forks yet -> the reading component is the sole lane.
-  let children = if ($lanes | is-empty) { [(DIV {class: "focus"} (read-view $head))] } else { $lanes }
-  DIV {class: "lane-row", "data-class": "{pulled: $_zoom}"} $children
+  DIV {class: "tree", style: ("grid-template-columns: repeat(" + ($n | into string) + ", 12rem);")} $cells
+}
+
+# The multi-lane view IS the main view. The reading component (cards + composer) is the current
+# lane; the tree overview is every lane aligned by shared node. Pulling away ($_zoom, a client
+# CSS class) crossfades the reading lane out and the aligned tree in. Both stay in the DOM so
+# streaming keeps targeting #output and the toggle needs no round trip.
+def lanes-view [head: string] {
+  DIV {class: "lane-wrap", "data-class": "{pulled: $_zoom}"} [
+    (DIV {class: "reading"} (read-view $head))
+    (lanes-tree $head)
+  ]
 }
 
 # Left pane: a table of contents for the current thread -- one entry per turn,
