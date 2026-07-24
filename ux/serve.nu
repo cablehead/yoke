@@ -164,32 +164,47 @@ def turn-label [frame: record] {
   $user.content? | default [] | where {|c| $c.type? == "text" } | get -i 0.text | default "(turn)"
 }
 
-# Zoom-out lane carousel: every leaf tip is a lane, rendered as its path with the turns
-# shared with the current lane dimmed (the trunk) and its divergent tail emphasized. The
-# lane the current head sits on is highlighted; clicking a lane switches to it.
-def render-lanes [head: string] {
-  if ($head | is-empty) { return "" }
-  let session = try { (.get $head).meta?.session? } catch { null }
+# All leaf tips (frames nobody `continues` from) for a session, in creation order.
+# Each leaf is one lane -- a distinct branch of the conversation.
+def leaves-for [session: any] {
   let frames = try { .cat -T chat.turn | where {|f| $f.meta?.session? == $session } } catch { [] }
   let parents = $frames | each {|f| $f.meta?.continues? } | compact
-  let leaves = $frames | where {|f| $f.id not-in $parents }
-  let current_ids = thread $head | get id
+  $frames | where {|f| $f.id not-in $parents }
+}
 
-  let lanes = $leaves | each {|leaf|
-    let path = thread $leaf.id
-    let is_current = ($head in ($path | get id))
-    let turns = $path | each {|f|
+# The reading pane zoomed out in place: every leaf tip is a lane. The focused lane renders
+# full with its divergent tail bold; peers flank it dimmed and truncated. Turns shared with
+# the current thread are the trunk (grey). Click a peer to focus it, the focused lane to open
+# it. The arrow-key handler lives only in this view, so it exists only while zoomed out.
+def lanes-view [head: string, leaves: list, focus: int] {
+  let current_ids = thread $head | get id
+  let lanes = $leaves | enumerate | each {|x|
+    let leaf = $x.item
+    let is_focus = ($x.index == $focus)
+    let turns = thread $leaf.id | each {|f|
       let shared = ($f.id in $current_ids)
       let label = turn-label $f
-      let preview = if ($label | str length) > 30 { ($label | str substring 0..30) + "..." } else { $label }
-      DIV {style: ("padding: 0.15rem 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; " + (if $shared { "color: #bbb;" } else { "color: #222; font-weight: 600;" }))} $preview
+      let preview = if $is_focus or ($label | str length) <= 22 { $label } else { ($label | str substring 0..22) + "..." }
+      let clip = if $is_focus { "" } else { "white-space: nowrap; overflow: hidden; text-overflow: ellipsis; " }
+      let color = if $shared { "color: #bbb;" } else { "color: #1a1a1a; font-weight: 600;" }
+      DIV {style: ("padding: 0.2rem 0; " + $clip + $color)} $preview
     }
-    DIV {
-      style: ("flex: none; width: 15rem; padding: 0.5rem 0.75rem; border-radius: 0.5rem; cursor: pointer; border: 1px solid " + (if $is_current { "#1a4b8c; background: #eef4fc;" } else { "#eee;" })),
-      "data-on:click": ("$head = '" + $leaf.id + "'; $_zoom = false; @get('/load')")
-    } $turns
+    let click = if $is_focus {
+      ("$head = '" + $leaf.id + "'; @get('/load')")
+    } else {
+      ("$_lane = " + ($x.index | into string) + "; @get('/lanes')")
+    }
+    let skin = if $is_focus { "width: 26rem; border: 1px solid #1a4b8c; background: #f4f8fe;" } else { "width: 11rem; border: 1px solid #eee; opacity: 0.7;" }
+    DIV {style: ("flex: none; cursor: pointer; border-radius: 0.5rem; padding: 0.75rem 1rem; " + $skin), "data-on:click": $click} $turns
   }
-  DIV {style: "display: flex; gap: 0.75rem; overflow-x: auto; padding: 1rem; align-items: flex-start;"} $lanes
+  [
+    (DIV {style: "flex: 1; min-height: 0; display: flex; gap: 0.75rem; overflow-x: auto; align-items: flex-start; justify-content: center; padding: 1rem 0;"} $lanes)
+    (DIV {
+      id: "lane-keys"
+      "data-on:keydown__window": "if(evt.key==='ArrowLeft'){$_lane=Math.max(0,$_lane-1);@get('/lanes')}else if(evt.key==='ArrowRight'){$_lane=$_lane+1;@get('/lanes')}else if(evt.key==='Enter'){$head=$_laneHead;@get('/load')}else if(evt.key==='Escape'){@get('/load')}"
+      style: "position: sticky; bottom: 0; background: #fff; border-top: 1px solid #eee; padding: 0.75rem 0; color: #999; font-size: 0.8125rem; text-align: center;"
+    } "left / right switch lanes    enter open    esc back")
+  ]
 }
 
 # Left pane: a table of contents for the current thread -- one entry per turn,
@@ -213,6 +228,25 @@ def thread-toc [head: string] {
   }
 }
 
+# The composer: model button, prompt input, send. Belongs to the reading view only.
+def composer [] {
+  DIV {style: "position: sticky; bottom: 0; background: #fff; display: flex; gap: 0.5rem; align-items: center; padding: 0.75rem 0; border-top: 1px solid #eee;"} [
+    (BUTTON {style: "max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;", "data-on:click": "$_pickerOpen = true", "data-text": "'model: ' + $model"} "model")
+    (INPUT {id: "prompt-input", type: "text", placeholder: "ask something...", "data-bind": "prompt", style: "flex: 1;"})
+    (BUTTON {"data-indicator": "_sending", "data-attr:disabled": "$_sending", "data-on:click": "!$_sending && $prompt && @get('/sse'); $prompt = ''"} "send")
+  ]
+}
+
+# The reading pane for a head: the card stack plus the composer. This is the default mode
+# of the #view region; /lanes swaps in lanes-view, and returning here restores it.
+def read-view [head: string] {
+  let cards = if ($head | is-empty) { [] } else { render-run (thread-lines $head) }
+  [
+    (DIV {id: "output"} ...$cards)
+    (composer)
+  ]
+}
+
 def page [resume: string] {
   let providers = available-providers
   let default_provider = $providers | get -i 0 | get -i name | default $DEFAULT_PROVIDER
@@ -225,7 +259,6 @@ def page [resume: string] {
   let head = if ($resume | is-empty) { "" } else {
     (try { .cat -T chat.turn | where {|f| $f.meta?.session? == $session } | last | get -i id } catch { null }) | default ""
   }
-  let resume_cards = if ($head | is-empty) { [] } else { render-run (thread-lines $head) }
 
   HTML (
     HEAD
@@ -236,7 +269,7 @@ def page [resume: string] {
       ...(styles)
   ) (
     BODY {
-      "data-signals": ("{ model: '" + $default_model + "', provider: '" + $default_provider + "', model_filter: '', model_sort: '" + $DEFAULT_SORT + "', model_sort_dir: '" + $DEFAULT_SORT_DIR + "', model_sort_click: '', _pickerOpen: false, _zoom: false, session: '" + $session + "', head: '" + $head + "' }")
+      "data-signals": ("{ model: '" + $default_model + "', provider: '" + $default_provider + "', model_filter: '', model_sort: '" + $DEFAULT_SORT + "', model_sort_dir: '" + $DEFAULT_SORT_DIR + "', model_sort_click: '', _pickerOpen: false, _lane: 0, _laneHead: '', session: '" + $session + "', head: '" + $head + "' }")
       "data-init": "@get('/ui')"
     } [
       (DIV {style: "display: grid; grid-template-columns: 16rem 1fr; height: 100vh;"} [
@@ -245,26 +278,12 @@ def page [resume: string] {
             (H1 {style: "font-size: 1rem; margin: 0;"} "yoke")
             (A {href: "/"} "new")
             (A {href: "/runs"} "history")
-            (BUTTON {style: "border: 0; background: transparent; padding: 0; color: #1a4b8c; cursor: pointer;", "data-on:click": "$_zoom = true"} "lanes")
+            (BUTTON {style: "border: 0; background: transparent; padding: 0; color: #1a4b8c; cursor: pointer;", "data-on:click": "$_lane = -1; @get('/lanes')"} "lanes")
           ])
           (HEADER {class: "pane-header"} "turns")
           (DIV {id: "thread-toc", style: "overflow-y: auto; flex: 1;"} (thread-toc $head))
         ])
-        (SECTION {style: "display: flex; flex-direction: column; min-width: 0; min-height: 0; max-width: 48rem; width: 100%; margin: 0 auto; padding: 0 1rem;"} [
-          (DIV {id: "output"} ...$resume_cards)
-          (DIV {style: "position: sticky; bottom: 0; background: #fff; display: flex; gap: 0.5rem; align-items: center; padding: 0.75rem 0; border-top: 1px solid #eee;"} [
-            (BUTTON {style: "max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;", "data-on:click": "$_pickerOpen = true", "data-text": "'model: ' + $model"} "model")
-            (INPUT {type: "text", placeholder: "ask something...", "data-bind": "prompt", style: "flex: 1;"})
-            (BUTTON {"data-indicator": "_sending", "data-attr:disabled": "$_sending", "data-on:click": "!$_sending && $prompt && @get('/sse'); $prompt = ''"} "send")
-          ])
-        ])
-      ])
-      (DIV {id: "lanes-overlay", "data-show": "$_zoom", style: "position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; flex-direction: column; padding: 2rem; z-index: 20;"} [
-        (DIV {style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;"} [
-          (SPAN {style: "color: #fff; font-weight: 600;"} "lanes")
-          (BUTTON {style: "border: 0; background: transparent; color: #fff; font-size: 1.25rem; cursor: pointer;", "data-on:click": "$_zoom = false"} "close")
-        ])
-        (DIV {id: "lanes", style: "background: #fff; border-radius: 0.5rem; overflow: hidden; flex: 1;"} (render-lanes $head))
+        (SECTION {id: "view", style: "display: flex; flex-direction: column; min-width: 0; min-height: 0; max-width: 48rem; width: 100%; margin: 0 auto; padding: 0 1rem;"} (read-view $head))
       ])
       (render-model-picker $models $DEFAULT_SORT $DEFAULT_SORT_DIR)
     ]
@@ -353,26 +372,43 @@ def stream-ui [] {
       ]
     } else if $e.topic == "chat-turn-saved" {
       let head = $e.value.head? | default ""
-      [ ({head: $head} | to datastar-patch-signals) ] | append (nav-patches $head)
+      [ ({head: $head} | to datastar-patch-signals) (toc-patch $head) ]
     } else { [] }
   } | flatten | to sse
 }
 
-# Side-panel patches for a head: the turn TOC and the lane carousel. Shared by the bus
-# projection (after a turn) and /load (jumping / forking).
-def nav-patches [head: string] {
-  [
-    (thread-toc $head | each {|b| $b.__html } | str join "" | to datastar-patch-elements --selector "#thread-toc" --mode inner)
-    (render-lanes $head | to datastar-patch-elements --selector "#lanes" --mode inner)
-  ]
+# The turn TOC patch for a head. Shared by the bus projection (after a turn) and /load.
+def toc-patch [head: string] {
+  thread-toc $head | each {|b| $b.__html } | str join "" | to datastar-patch-elements --selector "#thread-toc" --mode inner
 }
 
-# Load the path root..head into #output (used when forking / jumping to a turn).
+# Enter (or move focus within) the lanes view. Reads $_lane: -1 means "focus the current
+# lane" (pressed on entry), otherwise the target lane index (clamped). Swaps the #view pane
+# to lanes-view and syncs $_lane / $_laneHead so the key handler and Enter stay in step.
+def handle-lanes [req: record] {
+  let signals = $in | from datastar-signals $req
+  let head = $signals.head? | default ""
+  let want = try { $signals._lane? | default (-1) | into int } catch { -1 }
+  if ($head | is-empty) { return ([] | to sse) }
+  let session = try { (.get $head).meta?.session? } catch { null }
+  let leaves = leaves-for $session
+  if ($leaves | is-empty) { return ([] | to sse) }
+  let cur_idx = $leaves | enumerate | where {|x| $head in (thread $x.item.id | get id) } | get -i 0.index | default 0
+  let focus = if $want < 0 { $cur_idx } else { [([$want (($leaves | length) - 1)] | math min) 0] | math max }
+  [
+    (lanes-view $head $leaves $focus | each {|b| $b.__html } | str join "" | to datastar-patch-elements --selector "#view" --mode inner)
+    ({_lane: $focus, _laneHead: ($leaves | get $focus | get id)} | to datastar-patch-signals)
+  ] | to sse
+}
+
+# Restore the reading pane for a head (exiting lanes, forking, or jumping to a turn).
 def handle-load [req: record] {
   let signals = $in | from datastar-signals $req
   let head = $signals.head? | default ""
-  let cards = if ($head | is-empty) { [] } else { render-run (thread-lines $head) }
-  [ ((DIV {id: "output"} ...$cards) | to datastar-patch-elements) ] | append (nav-patches $head) | to sse
+  [
+    (read-view $head | each {|b| $b.__html } | str join "" | to datastar-patch-elements --selector "#view" --mode inner)
+    (toc-patch $head)
+  ] | to sse
 }
 
 # Walk the `continues` linked list back to the root, returning frames oldest -> newest.
@@ -509,6 +545,7 @@ def handle-sse [req: record] {
     (route {method: GET path: "/ui"} {|req ctx| stream-ui})
     (route {method: POST path: "/ui"} {|req ctx| handle-ui $req})
     (route {method: GET path: "/load"} {|req ctx| handle-load $req})
+    (route {method: GET path: "/lanes"} {|req ctx| handle-lanes $req})
     (route {path: "/runs"} {|req ctx| runs-page})
     (route {path-matches: "/run/:id"} {|req ctx| run-page $ctx.id})
     (route {path: "/code"} {|req ctx| code-page})
