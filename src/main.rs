@@ -175,8 +175,9 @@ enum DeltaKind {
 
 // -- Input parsing -----------------------------------------------------------
 
-fn parse_stdin() -> (String, Vec<AgentMessage>) {
+fn parse_stdin() -> (String, Vec<serde_json::Value>, Vec<AgentMessage>) {
     let mut system = String::new();
+    let mut tool_decls: Vec<serde_json::Value> = Vec::new();
     let mut messages: Vec<AgentMessage> = Vec::new();
 
     let stdin = io::stdin().lock();
@@ -201,6 +202,12 @@ fn parse_stdin() -> (String, Vec<AgentMessage>) {
                 continue;
             }
         };
+
+        // {"type":"tool",...} lines are tool declarations (a prelude); collect them.
+        if value.get("type").and_then(|t| t.as_str()) == Some("tool") {
+            tool_decls.push(value);
+            continue;
+        }
 
         // Lines with "role" are context messages; everything else is skipped
         let role = match value.get("role").and_then(|r| r.as_str()) {
@@ -229,7 +236,7 @@ fn parse_stdin() -> (String, Vec<AgentMessage>) {
         }
     }
 
-    (system, messages)
+    (system, tool_decls, messages)
 }
 
 // -- Event emission ----------------------------------------------------------
@@ -382,6 +389,82 @@ fn emit_tool_prelude(specs: &[String]) {
             write_line(&json);
         }
     }
+}
+
+/// A tool whose schema (name/description/parameters) comes from a `type:"tool"` input line,
+/// but whose execution delegates to the matching built-in. This makes the prelude the source
+/// of truth for the context window -- edit its schema and that is what the model sees -- while
+/// yoke still runs the tool. The read counterpart to `yoke tools`.
+struct DeclaredTool {
+    name: String,
+    description: String,
+    parameters: serde_json::Value,
+    inner: Box<dyn AgentTool>,
+}
+
+#[async_trait::async_trait]
+impl AgentTool for DeclaredTool {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn label(&self) -> &str {
+        &self.name
+    }
+    fn description(&self) -> &str {
+        &self.description
+    }
+    fn parameters_schema(&self) -> serde_json::Value {
+        self.parameters.clone()
+    }
+    async fn execute(
+        &self,
+        params: serde_json::Value,
+        ctx: ToolContext,
+    ) -> Result<ToolResult, ToolError> {
+        self.inner.execute(params, ctx).await
+    }
+}
+
+/// The built-in tool that executes calls for `name`, or exit with a clear error if none.
+fn builtin_executor(name: &str) -> Box<dyn AgentTool> {
+    build_tools(name)
+        .into_iter()
+        .find(|t| t.name() == name)
+        .unwrap_or_else(|| {
+            eprintln!("no built-in executor for declared tool: {name}");
+            std::process::exit(1);
+        })
+}
+
+/// Turn `type:"tool"` input lines into tools: schema from the line (falling back to the
+/// built-in's when a field is omitted), execution from the built-in.
+fn tools_from_decls(decls: &[serde_json::Value]) -> Vec<Box<dyn AgentTool>> {
+    decls
+        .iter()
+        .map(|d| {
+            let name = d
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let inner = builtin_executor(&name);
+            let description = d
+                .get("description")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .unwrap_or_else(|| inner.description().to_string());
+            let parameters = d
+                .get("parameters")
+                .cloned()
+                .unwrap_or_else(|| inner.parameters_schema());
+            Box::new(DeclaredTool {
+                name,
+                description,
+                parameters,
+                inner,
+            }) as Box<dyn AgentTool>
+        })
+        .collect()
 }
 
 // -- Provider config ---------------------------------------------------------
@@ -633,8 +716,8 @@ async fn main() {
         }
     };
 
-    let (system, mut messages) = if io::stdin().is_terminal() {
-        (String::new(), Vec::<AgentMessage>::new())
+    let (system, tool_decls, mut messages) = if io::stdin().is_terminal() {
+        (String::new(), Vec::new(), Vec::<AgentMessage>::new())
     } else {
         parse_stdin()
     };
@@ -669,9 +752,19 @@ async fn main() {
         _ => unreachable!(),
     };
 
-    let tools = match cli.tools.as_deref() {
-        Some(spec) => build_tools(spec),
-        None => Vec::new(),
+    // Tools come from the input prelude (type:"tool" lines) when present; otherwise from the
+    // --tools flag. Prelude wins, so a context you feed back drives its own tools with no
+    // re-injection. The echo below reflects whichever set is used, so it round-trips.
+    let tools = if !tool_decls.is_empty() {
+        if cli.tools.is_some() {
+            eprintln!("note: --tools ignored; using tool declarations from input");
+        }
+        tools_from_decls(&tool_decls)
+    } else {
+        match cli.tools.as_deref() {
+            Some(spec) => build_tools(spec),
+            None => Vec::new(),
+        }
     };
     let tool_lines: Vec<serde_json::Value> = tools.iter().map(|t| tool_line(t.as_ref())).collect();
 
