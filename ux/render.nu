@@ -93,8 +93,9 @@ export def render-tool-result [tool_name: string, content: string, --args: strin
   ]
 }
 
-# Render an assistant message card (without the outer #output div)
-export def render-assistant [msg: record] {
+# Render an assistant message card (without the outer #output div). An id anchors the turn's
+# final response so a TOC can scroll to it.
+export def render-assistant [msg: record, --id: string = ""] {
   let text = $msg.content?
     | default []
     | where { $in.type? == "text" }
@@ -112,7 +113,8 @@ export def render-assistant [msg: record] {
     null
   }
 
-  DIV {class: "card"} [
+  let attrs = if ($id | is-empty) { {class: "card"} } else { {class: "card", id: $id} }
+  DIV $attrs [
     $rendered
     ...( if $sources != null { [$sources] } else { [] } )
     (DIV {style: "display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid #eee; font-size: 0.75rem; color: #888;"} [
@@ -139,6 +141,16 @@ export def render-run [lines: list] {
   # Turn number for each user message, so its card can be anchored as #turn-N.
   let user_positions = $lines | enumerate | where {|x| ($x.item.role?) == "user" } | get index
 
+  # The last assistant text message of each turn, anchored #resp-N (line index -> turn number),
+  # so a TOC can jump to a turn's final response, not just its question.
+  let resp_by_idx = $lines | enumerate
+    | where {|x| $x.item.role? == "assistant" and (($x.item.content? | default [] | where {|c| $c.type? == "text" and (($c.text? | default "") | str length) > 0 } | length) > 0) }
+    | each {|x| {idx: $x.index, turn: (($user_positions | where {|u| $u <= $x.index } | length) - 1)} }
+    | group-by {|r| $r.turn | into string }
+    | values
+    | each {|grp| $grp | sort-by idx | last }
+    | reduce --fold {} {|it, acc| $acc | insert ($it.idx | into string) $it.turn }
+
   $lines | enumerate | each {|x|
     let msg = $x.item
     match $msg.role? {
@@ -159,7 +171,8 @@ export def render-run [lines: list] {
           | where { $in.type? == "text" and ($in.text? | default "" | str length) > 0 }
           | length
         if $has_text > 0 {
-          render-assistant $msg
+          let rid = $resp_by_idx | get -o ($x.index | into string)
+          if $rid != null { render-assistant $msg --id $"resp-($rid)" } else { render-assistant $msg }
         } else {
           null
         }
@@ -188,7 +201,7 @@ export def render-run [lines: list] {
 # Render the full state: completed cards + streaming placeholder at bottom
 def render-frame [cards: list, streaming_text: string] {
   let streaming = render-streaming-card $streaming_text
-  DIV {id: "output"} [...$cards $streaming]
+  DIV {id: "output"} (DIV {class: "col"} [...$cards $streaming])
 }
 
 # Streaming card without the #output wrapper (for embedding in the stack)
@@ -257,7 +270,7 @@ export def "render yoke-stream" [--model (-m): string = ""] {
     } else if ($event.type? == "agent_end") {
       # Final frame: just the completed cards, no streaming placeholder
       let final_cards = render-run $state.messages
-      let frame = DIV {id: "output"} ...$final_cards
+      let frame = DIV {id: "output"} (DIV {class: "col"} ...$final_cards)
       {out: ($frame | to datastar-patch-elements), next: $state}
     } else {
       {next: $state}

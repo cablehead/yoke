@@ -59,11 +59,14 @@ def styles [] {
       th { text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid #ccc; position: sticky; top: 0; background: #fff; }
       td { padding: 0.3rem 0.5rem; }
       #output { flex: 1; overflow-y: auto; padding: 1rem 0; }
+      /* .col centers reading content but the scroll container (#output) spans full width, so
+         you can scroll from anywhere in the pane, not only over the 48rem column. */
+      .col { max-width: 48rem; margin: 0 auto; padding: 0 1rem; }
       @keyframes blink { 50% { opacity: 0; } }
       /* multi-lane view: .reading is the main view; pulling away ($_zoom -> .pulled) swaps in
          .tree, the whole conversation as an aligned node tree. Both stay in the DOM. */
       .lane-wrap { height: 100%; }
-      .lane-wrap .reading { height: 100%; display: flex; flex-direction: column; max-width: 48rem; margin: 0 auto; padding: 0 1rem; min-height: 0; }
+      .lane-wrap .reading { height: 100%; display: flex; flex-direction: column; min-height: 0; }
       .lane-wrap .tree { display: none; }
       .lane-wrap.pulled .reading { display: none; }
       .lane-wrap.pulled .tree { display: grid; gap: 0.5rem; grid-auto-rows: min-content; align-content: start; justify-content: start; padding: 1rem; height: 100%; overflow: auto; }
@@ -171,6 +174,14 @@ def turn-label [frame: record] {
   $user.content? | default [] | where {|c| $c.type? == "text" } | get -i 0.text | default "(turn)"
 }
 
+# A turn's final assistant response text, for the TOC's response pointer.
+def resp-label [frame: record] {
+  let lines = try { .cas $frame.hash | lines | where {|l| $l != "" } | each { from json } } catch { [] }
+  let last = $lines | where {|m| $m.role? == "assistant" and (($m.content? | default [] | where {|c| $c.type? == "text" and (($c.text? | default "") | str length) > 0 } | length) > 0) } | last
+  if ($last | is-empty) { return "(no response)" }
+  $last.content? | default [] | where {|c| $c.type? == "text" } | get -i 0.text | default "(response)" | str trim
+}
+
 # All leaf tips (frames nobody `continues` from) for a session, in creation order.
 # Each leaf is one lane -- a distinct branch of the conversation.
 def leaves-for [session: any] {
@@ -233,42 +244,56 @@ def lanes-view [head: string] {
   ]
 }
 
-# Left pane: a table of contents for the current thread -- one entry per turn,
-# clicking scrolls the output to that turn (#turn-N).
+# Left pane: a table of contents for the current thread. Each turn gets two entries -- the
+# user's question (scrolls to #turn-N) and the turn's final response (scrolls to #resp-N) --
+# so long agentic turns are navigable to the answer, not just the prompt.
 def thread-toc [head: string] {
   if ($head | is-empty) { return [] }
+  let clip = {|s: string, n: int| if ($s | str length) > $n { ($s | str substring 0..$n) + "..." } else { $s } }
   thread $head | enumerate | each {|t|
-    let label = turn-label $t.item
-    let preview = if ($label | str length) > 34 { ($label | str substring 0..34) + "..." } else { $label }
-    DIV {class: "item", style: "display: flex; align-items: center;"} [
-      (BUTTON {
-        style: "flex: 1; min-width: 0; text-align: left; border: 0; background: transparent; cursor: pointer; padding: 0.5rem 0.75rem; color: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;",
-        "data-on:click": ("document.getElementById('turn-" + ($t.index | into string) + "')?.scrollIntoView({behavior: 'smooth', block: 'start'})")
-      } $preview)
-      (BUTTON {
-        title: "branch from here",
-        style: "border: 0; background: transparent; cursor: pointer; padding: 0.5rem; color: #999;",
-        "data-on:click": ("$head = '" + $t.item.id + "'; @get('/load')")
-      } "fork")
+    let n = $t.index | into string
+    let jump = "border: 0; background: transparent; cursor: pointer; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit;"
+    [
+      (DIV {class: "item", style: "display: flex; align-items: center;"} [
+        (BUTTON {
+          style: ("flex: 1; min-width: 0; padding: 0.5rem 0.75rem; " + $jump),
+          "data-on:click": ("document.getElementById('turn-" + $n + "')?.scrollIntoView({behavior: 'smooth', block: 'start'})")
+        } (do $clip (turn-label $t.item) 34))
+        (BUTTON {
+          title: "branch from here",
+          style: "border: 0; background: transparent; cursor: pointer; padding: 0.5rem; color: #999;",
+          "data-on:click": ("$head = '" + $t.item.id + "'; @get('/load')")
+        } "fork")
+      ])
+      (DIV {class: "item", style: "display: flex; align-items: center;"} [
+        (BUTTON {
+          style: ("flex: 1; min-width: 0; padding: 0.35rem 0.75rem 0.5rem 1.5rem; font-size: 0.8125rem; color: #888; " + $jump),
+          "data-on:click": ("document.getElementById('resp-" + $n + "')?.scrollIntoView({behavior: 'smooth', block: 'start'})")
+        } (do $clip (resp-label $t.item) 32))
+      ])
     ]
-  }
+  } | flatten
 }
 
-# The composer: model button, prompt input, send. Belongs to the reading view only.
+# The composer: model button, prompt input, send. Belongs to the reading view only. Full-width
+# bar (so its top border spans the pane) with the controls centered in a .col.
 def composer [] {
-  DIV {style: "position: sticky; bottom: 0; background: #fff; display: flex; gap: 0.5rem; align-items: center; padding: 0.75rem 0; border-top: 1px solid #eee;"} [
-    (BUTTON {style: "max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;", "data-on:click": "$_pickerOpen = true", "data-text": "'model: ' + $model"} "model")
-    (INPUT {id: "prompt-input", type: "text", placeholder: "ask something...", "data-bind": "prompt", style: "flex: 1;"})
-    (BUTTON {"data-indicator": "_sending", "data-attr:disabled": "$_sending", "data-on:click": "!$_sending && $prompt && @get('/sse'); $prompt = ''"} "send")
+  DIV {style: "background: #fff; border-top: 1px solid #eee;"} [
+    (DIV {class: "col", style: "display: flex; gap: 0.5rem; align-items: center; padding: 0.75rem 1rem;"} [
+      (BUTTON {style: "max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;", "data-on:click": "$_pickerOpen = true", "data-text": "'model: ' + $model"} "model")
+      (INPUT {id: "prompt-input", type: "text", placeholder: "ask something...", "data-bind": "prompt", style: "flex: 1;"})
+      (BUTTON {"data-indicator": "_sending", "data-attr:disabled": "$_sending", "data-on:click": "!$_sending && $prompt && @get('/sse'); $prompt = ''"} "send")
+    ])
   ]
 }
 
 # The reading pane for a head: the card stack plus the composer. This is the default mode
-# of the #view region; /lanes swaps in lanes-view, and returning here restores it.
+# of the #view region; /lanes swaps in lanes-view, and returning here restores it. #output is
+# the full-width scroll container; cards center inside a .col so the gutters scroll too.
 def read-view [head: string] {
   let cards = if ($head | is-empty) { [] } else { render-run (thread-lines $head) }
   [
-    (DIV {id: "output"} ...$cards)
+    (DIV {id: "output"} (DIV {class: "col"} ...$cards))
     (composer)
   ]
 }
