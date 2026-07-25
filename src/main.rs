@@ -43,6 +43,9 @@ impl From<ThinkingArg> for ThinkingLevel {
 #[derive(Parser)]
 #[command(about = "Headless agent harness. JSONL in, JSONL out.", version)]
 struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+
     /// Provider: anthropic, openai, gemini, openrouter, ollama
     #[arg(long)]
     provider: Option<String>,
@@ -97,6 +100,16 @@ struct Cli {
     /// Optional trailing prompt appended as a final user message
     #[arg()]
     prompt: Option<String>,
+}
+
+#[derive(clap::Subcommand)]
+enum Command {
+    /// Emit tool definitions as JSONL (a prelude to prepend to your input, instead of
+    /// letting --tools inject them). Names match --tools, e.g. `yoke tools code web_search`.
+    Tools {
+        /// Toolset/tool names (groups: all, code, none; or individual tools)
+        specs: Vec<String>,
+    },
 }
 
 #[derive(Clone)]
@@ -574,15 +587,13 @@ fn normalize_model(provider: &str, raw: &serde_json::Value) -> Option<serde_json
 
 #[tokio::main]
 async fn main() {
-    // `yoke tools <names...>` emits a tool-definition prelude (JSONL) and exits. Handled
-    // before clap because the free-positional prompt would otherwise swallow "tools".
-    let argv: Vec<String> = std::env::args().collect();
-    if argv.get(1).map(String::as_str) == Some("tools") {
-        emit_tool_prelude(&argv[2..]);
+    let cli = Cli::parse();
+
+    // `yoke tools <names...>` emits a tool-definition prelude (JSONL) and exits.
+    if let Some(Command::Tools { specs }) = &cli.command {
+        emit_tool_prelude(specs);
         return;
     }
-
-    let cli = Cli::parse();
 
     // Configure the embedded Nushell engine with plugins and include paths
     nu_tool::configure(cli.plugins, cli.include_paths, cli.config);
