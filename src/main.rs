@@ -343,6 +343,34 @@ fn build_tools(spec: &str) -> Vec<Box<dyn AgentTool>> {
     tools
 }
 
+/// A tool's definition as one JSONL context line: name, description, and full parameter
+/// schema. Shared by `yoke tools` (the prelude emitter) and the run-time tool echo, so both
+/// speak the same format.
+fn tool_line(tool: &dyn AgentTool) -> serde_json::Value {
+    serde_json::json!({
+        "type": "tool",
+        "name": tool.name(),
+        "description": tool.description(),
+        "parameters": tool.parameters_schema(),
+    })
+}
+
+/// `yoke tools <names...>` -- emit the resolved tool definitions as JSONL, so you can prepend
+/// them to your input instead of yoke injecting them from --tools. Names match --tools.
+fn emit_tool_prelude(specs: &[String]) {
+    if specs.is_empty() || specs.iter().any(|s| s == "-h" || s == "--help") {
+        eprintln!("usage: yoke tools <names...>   e.g. yoke tools code web_search");
+        eprintln!("groups:      all, code, none");
+        eprintln!("individual:  bash, nu, read_file, write_file, edit_file, list_files, search, web_search");
+        return;
+    }
+    for tool in build_tools(&specs.join(",")) {
+        if let Ok(json) = serde_json::to_string(&tool_line(tool.as_ref())) {
+            write_line(&json);
+        }
+    }
+}
+
 // -- Provider config ---------------------------------------------------------
 
 struct ProviderConfig {
@@ -546,6 +574,14 @@ fn normalize_model(provider: &str, raw: &serde_json::Value) -> Option<serde_json
 
 #[tokio::main]
 async fn main() {
+    // `yoke tools <names...>` emits a tool-definition prelude (JSONL) and exits. Handled
+    // before clap because the free-positional prompt would otherwise swallow "tools".
+    let argv: Vec<String> = std::env::args().collect();
+    if argv.get(1).map(String::as_str) == Some("tools") {
+        emit_tool_prelude(&argv[2..]);
+        return;
+    }
+
     let cli = Cli::parse();
 
     // Configure the embedded Nushell engine with plugins and include paths
@@ -626,15 +662,7 @@ async fn main() {
         Some(spec) => build_tools(spec),
         None => Vec::new(),
     };
-    let tool_descriptions: Vec<serde_json::Value> = tools
-        .iter()
-        .map(|t| {
-            serde_json::json!({
-                "name": t.name(),
-                "description": t.description(),
-            })
-        })
-        .collect();
+    let tool_lines: Vec<serde_json::Value> = tools.iter().map(|t| tool_line(t.as_ref())).collect();
 
     agent = agent
         .with_model(&model)
@@ -670,9 +698,8 @@ async fn main() {
         }
     }
 
-    if !tool_descriptions.is_empty() {
-        let obs = serde_json::json!({"type": "tools", "tools": tool_descriptions});
-        if let Ok(json) = serde_json::to_string(&obs) {
+    for line in &tool_lines {
+        if let Ok(json) = serde_json::to_string(line) {
             write_line(&json);
         }
     }
