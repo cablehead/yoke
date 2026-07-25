@@ -119,7 +119,7 @@ export def render-assistant [msg: record, --id: string = ""] {
     ...( if $sources != null { [$sources] } else { [] } )
     (DIV {style: "display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid #eee; font-size: 0.75rem; color: #888;"} [
       (SPAN $model)
-      (SPAN ...(render-usage $usage))
+      (SPAN {title: "in: full context sent this step (system prompt + tool schemas + conversation so far), not just your message. out: tokens generated. cached: input reused from cache. total: in + out. Each step is a fresh call, so in grows as history accumulates.", style: "cursor: help;"} ...(render-usage $usage))
     ])
   ]
 }
