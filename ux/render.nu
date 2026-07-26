@@ -80,16 +80,37 @@ export def render-user [text: string, --id: string = ""] {
   }
 }
 
-# Render a tool result card. `args` is a compact rendering of the call's arguments
-# (e.g. "path: README.md") so you can see what the tool was invoked with.
-export def render-tool-result [tool_name: string, content: string, --args: string = "", --is-error] {
-  let cls = if $is_error { "card tool error" } else { "card tool" }
-  DIV {class: $cls} [
-    (DIV {style: "font-weight: 600; font-size: 0.75rem; color: #555; margin-bottom: 0.25rem;"} [
-      (SPAN $tool_name)
-      ...(if ($args | is-not-empty) { [(SPAN {style: "font-weight: 400; color: #999; margin-left: 0.5rem; font-family: ui-monospace, monospace;"} $args)] } else { [] })
+# Render a tool result card. `args` is the call's arguments (e.g. the bash command) shown as a
+# readable block; the exit code, if the output carries one, is lifted into the status-bar header.
+# `id` anchors the card so the nav can jump straight to it.
+export def render-tool-result [tool_name: string, content: string, --args: string = "", --is-error, --id: string = ""] {
+  let exit = $content | parse -r 'Exit code: (?<code>-?[0-9]+)' | get -i 0.code
+  let body = if ($exit != null) {
+    $content | lines | where {|l| ($l | str trim | str starts-with "Exit code:") == false } | str join "\n" | str trim
+  } else { $content }
+  let bad = $is_error or (($exit != null) and ($exit != "0"))
+  let cls = if $bad { "card tool error" } else { "card tool" }
+  let attrs = if ($id | is-empty) { {class: $cls} } else { {class: $cls, id: $id} }
+  DIV $attrs [
+    (DIV {class: "tool-head"} [
+      (SPAN {class: "tool-name"} $tool_name)
+      ...(if ($exit != null) { [(SPAN {class: ("tool-exit " + (if $exit == "0" { "ok" } else { "bad" }))} $"exit ($exit)")] } else { [] })
     ])
-    (PRE {style: "margin: 0; white-space: pre-wrap; font-size: 0.75rem; max-height: 12rem; overflow-y: auto;"} $content)
+    ...(if ($args | is-not-empty) { [(PRE {class: "tool-args"} $args)] } else { [] })
+    ...(if ($body | is-not-empty) { [(PRE {class: "tool-out"} $body)] } else { [] })
+  ]
+}
+
+# Render a tool *definition* (schema) as a card in the same family as a tool result: the name and
+# size in the status bar, the description, and the parameter schema. A tool def is a context node.
+export def render-tool-def [name: string, bytes: int, description: string, schema: string] {
+  DIV {class: "card tool def"} [
+    (DIV {class: "tool-head"} [
+      (SPAN {class: "tool-name"} $name)
+      (SPAN {class: "tool-size"} $"($bytes) B  ~(($bytes / 4) | math round) tok")
+    ])
+    ...(if ($description | is-not-empty) { [(DIV {class: "tool-desc"} $description)] } else { [] })
+    (PRE {class: "tool-out"} $schema)
   ]
 }
 
@@ -202,10 +223,11 @@ export def render-run [lines: list, --forks: list = []] {
           | compact
           | str join "\n"
         let is_error = $msg.isError? | default false
+        let tc_id = $"tc-($msg.toolCallId? | default ($x.index | into string))"
         if $is_error {
-          render-tool-result $tool_name $content --args $args --is-error
+          render-tool-result $tool_name $content --args $args --is-error --id $tc_id
         } else {
-          render-tool-result $tool_name $content --args $args
+          render-tool-result $tool_name $content --args $args --id $tc_id
         }
       }
       _ => null
@@ -225,7 +247,7 @@ export def render-run [lines: list, --forks: list = []] {
 
 # Wrap a tool card so it collapses to a peek by default, with a [+]/[-] toggle to expand. Pure
 # CSS (a hidden checkbox + label), so expand state survives Datastar morphs on each stream tick.
-def collapsible-tool [card: any, id: string] {
+export def collapsible-tool [card: any, id: string] {
   DIV {class: "collapsible"} [
     (INPUT {type: "checkbox", id: $"exp-($id)", class: "exp-cb", style: "display: none;"})
     $card

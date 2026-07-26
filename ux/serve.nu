@@ -66,16 +66,17 @@ def styles [] {
       #output { padding: 1rem 0 0; }
       #context { padding: 0 0 1rem; }
       .col { max-width: 48rem; margin: 0 auto; padding: 0 1rem; }
-      /* context view: system + tool parts, rendered inline at the start of the conversation.
-         each is a native <details> that expands in place. no JS. classes not child combinators
-         since > gets escaped in <style> text. */
-      details.part { margin: 0.25rem 0 0.25rem 0.75rem; border-left: 2px solid #eee; padding-left: 0.6rem; }
-      .part-summary { cursor: pointer; display: flex; gap: 0.5rem; align-items: baseline; list-style: none; }
-      .part-summary::-webkit-details-marker { display: none; }
-      .part-name { font-family: ui-monospace, monospace; font-size: 0.8125rem; }
-      .part-size { color: #aaa; font-size: 0.6875rem; }
-      .part-desc { color: #666; font-size: 0.8125rem; margin: 0.35rem 0; }
-      details.part pre { font-size: 0.6875rem; max-height: 18rem; overflow: auto; margin: 0.25rem 0; }
+      /* tool cards (results and definitions): a status-bar header + body blocks. */
+      .tool-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; font-weight: 600; font-size: 0.75rem; color: #555; margin-bottom: 0.35rem; padding-right: 1.75rem; }
+      .tool-name { font-family: ui-monospace, monospace; }
+      .tool-exit { font-family: ui-monospace, monospace; font-size: 0.6875rem; font-weight: 600; padding: 0.05rem 0.35rem; border-radius: 0.25rem; }
+      .tool-exit.ok { color: #1a7f37; background: #e8f5ec; }
+      .tool-exit.bad { color: #c0392b; background: #fdecea; }
+      .tool-size { color: #aaa; font-size: 0.6875rem; font-weight: 400; }
+      .tool-desc { color: #666; font-size: 0.8125rem; margin: 0 0 0.4rem; }
+      .tool-args { margin: 0 0 0.4rem; padding: 0.4rem 0.6rem; background: rgba(0,0,0,0.05); border-radius: 0.25rem; font-size: 0.75rem; white-space: pre-wrap; overflow-x: auto; }
+      .tool-out { margin: 0; white-space: pre-wrap; font-size: 0.75rem; max-height: 12rem; overflow: auto; }
+      .card.tool.def { background: #f6f6fb; border-left-color: #8a8ad8; }
       /* per-node action row: fork (forkable turns) + raw toggle. subtle, above the next card. */
       .actions { display: flex; align-items: baseline; gap: 0.75rem; margin: -0.4rem 0 0.5rem; }
       .act-btn { border: 0; background: transparent; cursor: pointer; color: #999; font-size: 0.6875rem; padding: 0; }
@@ -311,8 +312,11 @@ def context-outline [head: string] {
     for i in 0..<($n - 1) {
       let a = $assistants | get $i
       let ni = (try { $assistants | get ($i + 1) | get usage.input } catch { null }) | default $cum
-      let names = $a.content? | default [] | where {|c| $c.type? == "toolCall" } | get name? | compact | str join ", "
-      $out = $out | append {kind: "toolcall", label: (if ($names | is-empty) { "tool call" } else { $names }), node: ($ni - $cum), cum: $ni, anchor: $"turn-($idx)", frame: $f.id}
+      let calls = $a.content? | default [] | where {|c| $c.type? == "toolCall" }
+      let names = $calls | get name? | compact | str join ", "
+      let tc = $calls | get id? | compact | first
+      let anchor = if ($tc | is-empty) { $"turn-($idx)" } else { $"tc-($tc)" }
+      $out = $out | append {kind: "toolcall", label: (if ($names | is-empty) { "tool call" } else { $names }), node: ($ni - $cum), cum: $ni, anchor: $anchor, frame: $f.id}
       $cum = $ni
     }
     let last = $assistants | last
@@ -363,22 +367,10 @@ def size-label [bytes: int] {
   $"($bytes) B  ~(($bytes / 4) | math round) tok"
 }
 
-# One collapsible context part: name + size in the summary, optional description, body preview.
-def render-part [name: string, bytes: int, desc: string, body: string] {
-  DETAILS {class: "part"} [
-    (SUMMARY {class: "part-summary"} [
-      (SPAN {class: "part-name"} $name)
-      (SPAN {class: "part-size"} (size-label $bytes))
-    ])
-    ...(if ($desc | is-not-empty) { [(DIV {class: "part-desc"} $desc)] } else { [] })
-    (PRE $body)
-  ]
-}
-
-# The usually-invisible part of the context window, surfaced: the system prompt and the tool
-# definitions yoke sends. Collapsed to name + size; expand for the text/schema. Tools are
-# regenerated from `yoke tools` (the same spec the run uses); the system prompt comes from the
-# thread. Size is derived from each part's bytes -- no token field is stored.
+# The tool definitions (and system prompt) as context-node cards -- the same card family as a
+# tool result, collapsible like the other tool cards. These are the "what is this?" tools: each
+# is a node in the context. Tools come from `yoke tools` (the same spec the run uses); the system
+# prompt comes from the thread. Byte length is the raw wire size, matching the nav's tools node.
 def render-context [head: string] {
   let sys = if ($head | is-empty) { "" } else {
     let m = thread-lines $head | where {|m| $m.role? == "system" } | get -i 0
@@ -391,18 +383,17 @@ def render-context [head: string] {
       }
     }
   }
-  # Keep the raw JSONL lines: their byte length is what the wire carries, and it matches the
-  # nav's tools estimate (tools-token-estimate), so the two views agree.
   let tool_lines = try {
     ^yoke tools ...($TOOLS_SPEC | split row ",") | lines | where {|l| $l != "" }
   } catch { [] }
-  let sys_parts = if ($sys | is-empty) { [] } else { [(render-part "system prompt" ($sys | str length) "" $sys)] }
-  let tool_parts = $tool_lines | each {|line|
-    let t = $line | from json
-    render-part $t.name ($line | str length) ($t.description? | default "") ($t.parameters? | default {} | to json --indent 2)
+  let sys_cards = if ($sys | is-empty) { [] } else {
+    [(collapsible-tool (render-tool-def "system prompt" ($sys | str length) "" $sys) "def-system")]
   }
-  # The parts inline -- each expands in place. The tools' total lives in the nav's tools node now.
-  $sys_parts ++ $tool_parts
+  let tool_cards = $tool_lines | each {|line|
+    let t = $line | from json
+    collapsible-tool (render-tool-def $t.name ($line | str length) ($t.description? | default "") ($t.parameters? | default {} | to json --indent 2)) $"def-($t.name)"
+  }
+  $sys_cards ++ $tool_cards
 }
 
 # The reading pane for a head: the card stack (newest first) with the context parts inline at
