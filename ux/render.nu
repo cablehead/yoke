@@ -132,7 +132,7 @@ def fmt-args [args: any] {
 # A collapsed "raw" toggle shown under a card -- the message's stored JSONL, every byte.
 def raw-details [msg: record] {
   DETAILS {class: "raw"} [
-    (SUMMARY "raw")
+    (SUMMARY {class: "raw-summary"} "raw")
     (PRE ($msg | to json --indent 2))
   ]
 }
@@ -159,7 +159,7 @@ export def render-run [lines: list] {
     | each {|grp| $grp | sort-by idx | last }
     | reduce --fold {} {|it, acc| $acc | insert ($it.idx | into string) $it.turn }
 
-  $lines | enumerate | each {|x|
+  let items = $lines | enumerate | each {|x|
     let msg = $x.item
     let card = match $msg.role? {
       "user" => {
@@ -203,84 +203,67 @@ export def render-run [lines: list] {
       }
       _ => null
     }
-    if $card == null { null } else { DIV {class: "msg"} [$card (raw-details $msg)] }
+    if $card == null { null } else { {card: $card, msg: $msg, tool: ($msg.role? == "toolResult"), id: ($msg.toolCallId? | default ($x.index | into string))} }
   } | compact
+  # Newest first. The top item stays full; older tool cards collapse to a peek you can expand.
+  $items | reverse | enumerate | each {|y|
+    let it = $y.item
+    let body = if ($y.index != 0 and $it.tool) { collapsible-tool $it.card $it.id } else { $it.card }
+    DIV {class: "msg"} [$body (raw-details $it.msg)]
+  }
 }
 
-# Render the full state: completed cards + streaming placeholder at bottom
-def render-frame [cards: list, streaming_text: string] {
-  let streaming = render-streaming-card $streaming_text
-  DIV {id: "output"} (DIV {class: "col"} [...$cards $streaming])
+# Wrap a tool card so it collapses to a peek by default, with a [+]/[-] toggle to expand. Pure
+# CSS (a hidden checkbox + label), so expand state survives Datastar morphs on each stream tick.
+def collapsible-tool [card: any, id: string] {
+  DIV {class: "collapsible"} [
+    (INPUT {type: "checkbox", id: $"exp-($id)", class: "exp-cb", style: "display: none;"})
+    $card
+    (LABEL {for: $"exp-($id)", class: "exp-toggle"} [
+      (SPAN {class: "i-plus"} "[+]")
+      (SPAN {class: "i-minus"} "[-]")
+    ])
+  ]
 }
 
-# Streaming card without the #output wrapper (for embedding in the stack)
+# The live card at the top of the stack: the model's in-progress text (or "thinking..."). Its
+# own #streaming id lets a text delta patch just this card, leaving the completed stack alone.
 def render-streaming-card [text: string] {
   let rendered = if ($text | is-empty) {
     SPAN {style: "color: #999;"} "thinking..."
   } else {
     $text | .md
   }
-  DIV {style: "padding: 1rem; background: #f5f5f5; border-radius: 0.5rem; min-height: 4rem; margin-bottom: 0.75rem;"} [
+  DIV {id: "streaming", style: "padding: 1rem; background: #f5f5f5; border-radius: 0.5rem; min-height: 4rem; margin-bottom: 0.75rem;"} [
     $rendered
     (SPAN {style: "display: inline-block; width: 0.5rem; height: 1rem; background: #333; animation: blink 1s step-end infinite;"} "")
   ]
 }
 
-# Process a stream of yoke JSONL lines into Datastar patch-elements records.
-# Renders completed cards immediately, with a streaming placeholder at the bottom.
+# The whole #output: the live streaming card on top (while a turn is active), then the completed
+# stack newest-first. One render path for streaming and rest -- render-run does the ordering.
+def stream-frame [messages: list, acc: string, active: bool] {
+  let top = if $active { [(render-streaming-card $acc)] } else { [] }
+  DIV {id: "output"} (DIV {class: "col"} [...$top ...(render-run $messages)])
+}
+
+# Process a stream of yoke JSONL lines into Datastar patch-elements records. Text deltas patch
+# only the streaming card; message/lifecycle events re-render the whole stack.
 export def "render yoke-stream" [--model (-m): string = ""] {
-  generate {|line, state = {acc: "", cards: [], messages: []}|
+  generate {|line, state = {acc: "", messages: []}|
     let event = try { $line | from json } catch { null }
     if $event == null {
       {next: $state}
     } else if ($event.type? == "delta" and $event.kind? == "text") {
       let acc = $state.acc + $event.delta
-      let frame = render-frame $state.cards $acc
-      {out: ($frame | to datastar-patch-elements), next: ($state | merge {acc: $acc})}
+      {out: (render-streaming-card $acc | to datastar-patch-elements), next: ($state | merge {acc: $acc})}
     } else if ($event.type? == "agent_start") {
-      let frame = render-frame [] ""
-      {out: ($frame | to datastar-patch-elements), next: {acc: "", cards: [], messages: []}}
-    } else if ($event.role? == "user") {
-      # User message: render card immediately
-      let text = $event.content?
-        | default []
-        | where { $in.type? == "text" }
-        | get text?
-        | compact
-        | str join ""
-      let cards = $state.cards | append (render-user $text)
+      {out: (stream-frame [] "" true | to datastar-patch-elements), next: {acc: "", messages: []}}
+    } else if ($event.role? in ["user" "toolResult" "assistant"]) {
       let messages = $state.messages | append $event
-      let frame = render-frame $cards ""
-      {out: ($frame | to datastar-patch-elements), next: ($state | merge {acc: "", cards: $cards, messages: $messages})}
-    } else if ($event.role? == "toolResult") {
-      # Tool result: render card immediately
-      let tool_name = $event.toolName? | default "tool"
-      let content = $event.content?
-        | default []
-        | where { $in.type? == "text" }
-        | get text?
-        | compact
-        | str join "\n"
-      let is_error = $event.isError? | default false
-      let card = if $is_error {
-        render-tool-result $tool_name $content --is-error
-      } else {
-        render-tool-result $tool_name $content
-      }
-      let cards = $state.cards | append $card
-      let messages = $state.messages | append $event
-      let frame = render-frame $cards ""
-      {out: ($frame | to datastar-patch-elements), next: ($state | merge {acc: "", cards: $cards, messages: $messages})}
-    } else if ($event.role? == "assistant") {
-      # Assistant message: render as completed card, reset streaming text
-      let messages = $state.messages | append $event
-      let cards = $state.cards | append (render-assistant $event)
-      {next: ($state | merge {acc: "", cards: $cards, messages: $messages})}
+      {out: (stream-frame $messages "" true | to datastar-patch-elements), next: ($state | merge {acc: "", messages: $messages})}
     } else if ($event.type? == "agent_end") {
-      # Final frame: just the completed cards, no streaming placeholder
-      let final_cards = render-run $state.messages
-      let frame = DIV {id: "output"} (DIV {class: "col"} ...$final_cards)
-      {out: ($frame | to datastar-patch-elements), next: $state}
+      {out: (stream-frame $state.messages "" false | to datastar-patch-elements), next: $state}
     } else {
       {next: $state}
     }

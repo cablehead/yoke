@@ -64,20 +64,30 @@ def styles [] {
       /* .col centers reading content but the scroll container (#output) spans full width, so
          you can scroll from anywhere in the pane, not only over the 48rem column. */
       .col { max-width: 48rem; margin: 0 auto; padding: 0 1rem; }
-      /* context view: collapsible tool/system parts. native <details>, no JS. */
+      /* context view: collapsible tool/system parts. native <details>, no JS. classes (not
+         child combinators) since > gets escaped in <style> text. */
       details.context { border-bottom: 1px solid #eee; }
-      details.context > summary { cursor: pointer; padding: 0.5rem 0; color: #888; font-size: 0.8125rem; list-style: none; }
-      details.context > summary::-webkit-details-marker { display: none; }
+      .ctx-summary { cursor: pointer; padding: 0.5rem 0; color: #888; font-size: 0.8125rem; list-style: none; }
+      .ctx-summary::-webkit-details-marker { display: none; }
       details.part { margin: 0.25rem 0 0.25rem 0.75rem; border-left: 2px solid #eee; padding-left: 0.6rem; }
-      details.part > summary { cursor: pointer; display: flex; gap: 0.5rem; align-items: baseline; }
+      .part-summary { cursor: pointer; display: flex; gap: 0.5rem; align-items: baseline; list-style: none; }
+      .part-summary::-webkit-details-marker { display: none; }
       .part-name { font-family: ui-monospace, monospace; font-size: 0.8125rem; }
       .part-size { color: #aaa; font-size: 0.6875rem; }
       .part-desc { color: #666; font-size: 0.8125rem; margin: 0.35rem 0; }
       details.part pre { font-size: 0.6875rem; max-height: 18rem; overflow: auto; margin: 0.25rem 0; }
       /* per-message raw toggle: subtle, collapsed by default. */
-      details.raw > summary { cursor: pointer; color: #bbb; font-size: 0.6875rem; list-style: none; margin: -0.4rem 0 0.5rem; }
-      details.raw > summary::-webkit-details-marker { display: none; }
+      .raw-summary { cursor: pointer; color: #bbb; font-size: 0.6875rem; list-style: none; margin: -0.4rem 0 0.5rem; }
+      .raw-summary::-webkit-details-marker { display: none; }
       details.raw pre { font-size: 0.6875rem; max-height: 18rem; overflow: auto; }
+      /* collapsible tool card: peek by default, [+]/[-] toggle to expand. CSS-only. */
+      .collapsible { position: relative; }
+      .collapsible .card { max-height: 5rem; overflow: hidden; -webkit-mask-image: linear-gradient(#000 55%, transparent); mask-image: linear-gradient(#000 55%, transparent); }
+      .exp-cb:checked ~ .card { max-height: none; -webkit-mask-image: none; mask-image: none; }
+      .exp-toggle { position: absolute; top: 0.3rem; right: 0.4rem; z-index: 2; cursor: pointer; color: #999; background: #fff; border-radius: 0.25rem; padding: 0.05rem 0.25rem; line-height: 1; font-family: ui-monospace, monospace; font-size: 0.75rem; user-select: none; }
+      .exp-toggle .i-minus { display: none; }
+      .exp-cb:checked ~ .exp-toggle .i-plus { display: none; }
+      .exp-cb:checked ~ .exp-toggle .i-minus { display: inline; }
       @keyframes blink { 50% { opacity: 0; } }
       /* multi-lane view: .reading is the main view; pulling away ($_zoom -> .pulled) swaps in
          .tree, the whole conversation as an aligned node tree. Both stay in the DOM. */
@@ -311,7 +321,7 @@ def size-label [bytes: int] {
 # One collapsible context part: name + size in the summary, optional description, body preview.
 def render-part [name: string, bytes: int, desc: string, body: string] {
   DETAILS {class: "part"} [
-    (SUMMARY [
+    (SUMMARY {class: "part-summary"} [
       (SPAN {class: "part-name"} $name)
       (SPAN {class: "part-size"} (size-label $bytes))
     ])
@@ -347,7 +357,7 @@ def render-context [head: string] {
   if ($parts | is-empty) { return "" }
   let total = ($sys | str length) + ($tools | each {|t| $t | to json | str length } | math sum)
   DETAILS {class: "context"} [
-    (SUMMARY $"context  --  ($parts | length) parts, (size-label $total)")
+    (SUMMARY {class: "ctx-summary"} $"context  --  ($parts | length) parts, (size-label $total)")
     ...$parts
   ]
 }
