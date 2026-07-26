@@ -233,7 +233,6 @@ impl AgentTool for SubAgentTool {
             compaction_strategy: None,
             execution_limits: Some(ExecutionLimits {
                 max_turns: Some(self.max_turns),
-                max_total_tokens: Some(1_000_000),
                 max_duration: Some(std::time::Duration::from_secs(300)),
             }),
             cache_config: self.cache_config.clone(),

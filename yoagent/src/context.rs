@@ -471,9 +471,6 @@ fn keep_within_budget(messages: &[AgentMessage], budget: usize) -> Vec<AgentMess
 pub struct ExecutionLimits {
     /// Maximum number of turns (LLM calls)
     pub max_turns: Option<usize>,
-    /// Maximum context-window size in tokens (a single call's input + output). A guard against
-    /// the window growing unbounded -- not a cumulative token budget. `max_turns` bounds loops.
-    pub max_total_tokens: Option<usize>,
     /// Maximum wall-clock time
     pub max_duration: Option<std::time::Duration>,
 }
@@ -482,7 +479,6 @@ impl Default for ExecutionLimits {
     fn default() -> Self {
         Self {
             max_turns: Some(50),
-            max_total_tokens: Some(1_000_000),
             max_duration: Some(std::time::Duration::from_secs(600)),
         }
     }
@@ -492,8 +488,6 @@ impl Default for ExecutionLimits {
 pub struct ExecutionTracker {
     pub limits: ExecutionLimits,
     pub turns: usize,
-    /// The most recent call's context-window size (input + output), not a cumulative sum.
-    pub tokens_used: usize,
     pub started_at: std::time::Instant,
 }
 
@@ -502,18 +496,14 @@ impl ExecutionTracker {
         Self {
             limits,
             turns: 0,
-            tokens_used: 0,
             started_at: std::time::Instant::now(),
         }
     }
 
-    /// Record a completed LLM call. `window_tokens` is the size of the context window for that
-    /// call (input + output). We track it directly rather than summing across calls: the full
-    /// context is re-sent on every call, so a running sum would multiply-count the same context
-    /// and blow past the limit on long tool loops even when the window itself is small.
-    pub fn record_turn(&mut self, window_tokens: usize) {
+    /// Record a completed LLM call (turn). Runaway loops are bounded by `max_turns` and
+    /// `max_duration`; there is no token limit (context size is surfaced, not capped).
+    pub fn record_turn(&mut self) {
         self.turns += 1;
-        self.tokens_used = window_tokens;
     }
 
     /// Check if any limit has been exceeded. Returns the reason if so.
@@ -521,14 +511,6 @@ impl ExecutionTracker {
         if let Some(max) = self.limits.max_turns {
             if self.turns >= max {
                 return Some(format!("Max turns reached ({}/{})", self.turns, max));
-            }
-        }
-        if let Some(max) = self.limits.max_total_tokens {
-            if self.tokens_used >= max {
-                return Some(format!(
-                    "Context window too large ({}/{} tokens)",
-                    self.tokens_used, max
-                ));
             }
         }
         if let Some(max) = self.limits.max_duration {
@@ -731,41 +713,17 @@ mod tests {
     fn test_execution_limits() {
         let limits = ExecutionLimits {
             max_turns: Some(3),
-            max_total_tokens: Some(1000),
             max_duration: Some(std::time::Duration::from_secs(60)),
         };
 
         let mut tracker = ExecutionTracker::new(limits);
         assert!(tracker.check_limits().is_none());
 
-        tracker.record_turn(100);
-        tracker.record_turn(100);
+        tracker.record_turn();
+        tracker.record_turn();
         assert!(tracker.check_limits().is_none());
 
-        tracker.record_turn(100);
-        assert!(tracker.check_limits().is_some());
-    }
-
-    #[test]
-    fn test_token_limit_is_window_not_sum() {
-        let limits = ExecutionLimits {
-            max_turns: None,
-            max_total_tokens: Some(1000),
-            max_duration: None,
-        };
-        let mut tracker = ExecutionTracker::new(limits);
-
-        // Many calls each re-sending a modest window must NOT accumulate past the limit.
-        for _ in 0..100 {
-            tracker.record_turn(500);
-        }
-        assert!(
-            tracker.check_limits().is_none(),
-            "window of 500 must not trip a 1000 limit no matter how many calls"
-        );
-
-        // The limit fires only when a single call's window actually exceeds it.
-        tracker.record_turn(1200);
+        tracker.record_turn();
         assert!(tracker.check_limits().is_some());
     }
 }
