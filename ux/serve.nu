@@ -102,6 +102,11 @@ def styles [] {
       .item { border: 0; border-bottom: 1px solid #f0f0f0; cursor: pointer; background: transparent; color: inherit; }
       .item:hover:not(.active) { background: #f4f4f4; }
       .item.active { background: #e8f0fe; color: #1a4b8c; }
+      /* token-annotated outline: label + node tokens + cumulative. */
+      .node { border-bottom: 1px solid #f0f0f0; padding: 0.35rem 0.75rem; font-size: 0.8125rem; }
+      .node:hover { background: #f4f4f4; }
+      .node-tok { color: #bbb; font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
+      .node-cum { color: #666; font-size: 0.75rem; font-variant-numeric: tabular-nums; min-width: 3rem; text-align: right; }
       .card { border: 1px solid #e0e0e0; border-radius: 0.5rem; padding: 0.75rem 1rem; margin-bottom: 0.75rem; background: #fff; overflow: hidden; }
       .card.user { background: #e8f0fe; border-color: #c4d8f0; }
       .card.tool { border: none; border-left: 3px solid #27ae60; border-radius: 0.25rem; background: #f0faf4; padding: 0.5rem 0.75rem; font-size: 0.8125rem; }
@@ -271,36 +276,77 @@ def lanes-view [head: string] {
   ]
 }
 
-# Left pane: a table of contents for the current thread. Each turn gets two entries -- the
-# user's question (scrolls to #turn-N) and the turn's final response (scrolls to #resp-N) --
-# so long agentic turns are navigable to the answer, not just the prompt. Newest turn first, to
-# match the reading view; the index is kept for the anchors (which stay chronological).
+# The tool schemas' token cost (bytes/4). The one context part the model never reports on its
+# own -- it is bundled into the first call's input -- so it stays an estimate.
+def tools-token-estimate [] {
+  let bytes = try {
+    ^yoke tools ...($TOOLS_SPEC | split row ",") | lines | where {|l| $l != "" } | each { $in | str length } | math sum
+  } catch { 0 }
+  ($bytes / 4) | math round
+}
+
+# The context window as an ordered list of nodes with real per-node and cumulative token counts
+# derived from the model's usage. Chronological (oldest first): tools, then per turn the prompt,
+# a node per tool-calling round, and the response. cum at a node = the context size once that
+# node is in the window (the next call's input); node = cum minus the previous cum. Everything is
+# from the LLM's usage except the tools node (estimate). Bad provider numbers surface as-is.
+def context-outline [head: string] {
+  let e_tools = tools-token-estimate
+  mut cum = $e_tools
+  mut out = [{kind: "tools", label: "tools", node: $e_tools, cum: $e_tools, anchor: "context", frame: null}]
+  for fi in (thread $head | enumerate) {
+    let f = $fi.item
+    let idx = $fi.index | into string
+    let msgs = turn-lines $f
+    let assistants = $msgs | where {|m| $m.role? == "assistant" }
+    if ($assistants | is-empty) { continue }
+    let prompt = $msgs | where {|m| $m.role? == "user" } | first
+    let ptext = $prompt.content? | default [] | where {|c| $c.type? == "text" } | get -i 0.text | default "(prompt)"
+    let first_input = (try { $assistants | first | get usage.input } catch { null }) | default $cum
+    $out = $out | append {kind: "prompt", label: $ptext, node: ($first_input - $cum), cum: $first_input, anchor: $"turn-($idx)", frame: $f.id}
+    $cum = $first_input
+    let n = $assistants | length
+    for i in 0..<($n - 1) {
+      let a = $assistants | get $i
+      let ni = (try { $assistants | get ($i + 1) | get usage.input } catch { null }) | default $cum
+      let names = $a.content? | default [] | where {|c| $c.type? == "toolCall" } | get name? | compact | str join ", "
+      $out = $out | append {kind: "toolcall", label: (if ($names | is-empty) { "tool call" } else { $names }), node: ($ni - $cum), cum: $ni, anchor: $"turn-($idx)", frame: $f.id}
+      $cum = $ni
+    }
+    let last = $assistants | last
+    let li = try { $last | get usage.input } catch { 0 }
+    let lo = try { $last | get usage.output } catch { 0 }
+    $out = $out | append {kind: "response", label: "response", node: $lo, cum: ($li + $lo), anchor: $"resp-($idx)", frame: $f.id}
+    $cum = ($li + $lo)
+  }
+  $out
+}
+
+# Render one outline row: label (indented by kind), the node's own tokens, and the cumulative.
+def render-node-row [n: record] {
+  let clip = {|s: string, m: int| if ($s | str length) > $m { ($s | str substring 0..$m) + "..." } else { $s } }
+  let indent = if ($n.kind in ["prompt" "tools"]) { "0.75rem" } else { "1.75rem" }
+  let color = if $n.kind == "prompt" { "#222" } else if $n.kind == "toolcall" { "#888" } else { "#555" }
+  let label = if $n.kind == "toolcall" { $n.label } else { (do $clip $n.label 30) }
+  DIV {class: "node", style: "display: flex; align-items: baseline; gap: 0.4rem;", "data-on:click": ("document.getElementById('" + $n.anchor + "')?.scrollIntoView({behavior: 'smooth', block: 'start'})")} [
+    (SPAN {style: ("flex: 1; min-width: 0; padding-left: " + $indent + "; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: " + $color + ";")} $label)
+    (SPAN {class: "node-tok"} ("+" + (commafy $n.node)))
+    (SPAN {class: "node-cum"} (commafy $n.cum))
+  ]
+}
+
+# Left pane: the context window as a token-annotated outline, newest turn first (largest
+# cumulative on top), the tools node at the base. Each node shows its own tokens and the running
+# cumulative -- the real per-node cost from the model, so you can watch the window fill up.
 def thread-toc [head: string] {
   if ($head | is-empty) { return [] }
-  let clip = {|s: string, n: int| if ($s | str length) > $n { ($s | str substring 0..$n) + "..." } else { $s } }
-  thread $head | enumerate | reverse | each {|t|
-    let n = $t.index | into string
-    let jump = "border: 0; background: transparent; cursor: pointer; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit;"
-    [
-      (DIV {class: "item", style: "display: flex; align-items: center;"} [
-        (BUTTON {
-          style: ("flex: 1; min-width: 0; padding: 0.5rem 0.75rem; " + $jump),
-          "data-on:click": ("document.getElementById('turn-" + $n + "')?.scrollIntoView({behavior: 'smooth', block: 'start'})")
-        } (do $clip (turn-label $t.item) 34))
-        (BUTTON {
-          title: "branch from here",
-          style: "border: 0; background: transparent; cursor: pointer; padding: 0.5rem; color: #999;",
-          "data-on:click": ("$head = '" + $t.item.id + "'; @get('/load')")
-        } "fork")
-      ])
-      (DIV {class: "item", style: "display: flex; align-items: center;"} [
-        (BUTTON {
-          style: ("flex: 1; min-width: 0; padding: 0.35rem 0.75rem 0.5rem 1.5rem; font-size: 0.8125rem; color: #888; " + $jump),
-          "data-on:click": ("document.getElementById('resp-" + $n + "')?.scrollIntoView({behavior: 'smooth', block: 'start'})")
-        } (do $clip (resp-label $t.item) 32))
-      ])
-    ]
-  } | flatten
+  let outline = context-outline $head
+  let tools_node = $outline | where {|n| $n.kind == "tools" }
+  let convo = $outline | where {|n| $n.kind != "tools" }
+  # Reverse at the turn level (newest first) but keep prompt -> calls -> response within a turn.
+  let frames = $convo | get frame | uniq
+  let ordered = ($frames | reverse | each {|fid| $convo | where {|n| $n.frame == $fid } } | flatten) ++ $tools_node
+  $ordered | each {|n| render-node-row $n }
 }
 
 # The composer: model button, prompt input, send. Belongs to the reading view only. Full-width
@@ -348,16 +394,19 @@ def render-context [head: string] {
       }
     }
   }
-  let tools = try {
-    ^yoke tools ...($TOOLS_SPEC | split row ",") | lines | where {|l| $l != "" } | each { from json }
+  # Keep the raw JSONL lines: their byte length is what the wire carries, and it matches the
+  # nav's tools estimate (tools-token-estimate), so the two views agree.
+  let tool_lines = try {
+    ^yoke tools ...($TOOLS_SPEC | split row ",") | lines | where {|l| $l != "" }
   } catch { [] }
   let sys_parts = if ($sys | is-empty) { [] } else { [(render-part "system prompt" ($sys | str length) "" $sys)] }
-  let tool_parts = $tools | each {|t|
-    render-part $t.name ($t | to json | str length) ($t.description? | default "") ($t.parameters? | default {} | to json --indent 2)
+  let tool_parts = $tool_lines | each {|line|
+    let t = $line | from json
+    render-part $t.name ($line | str length) ($t.description? | default "") ($t.parameters? | default {} | to json --indent 2)
   }
   let parts = $sys_parts ++ $tool_parts
   if ($parts | is-empty) { return [] }
-  let total = ($sys | str length) + ($tools | each {|t| $t | to json | str length } | math sum)
+  let total = ($sys | str length) + ($tool_lines | each { str length } | math sum)
   # A quiet divider then the parts inline -- each expands in place, no aggregated wrapper.
   [(DIV {class: "ctx-divider"} $"context  --  ($parts | length) parts, (size-label $total)")] ++ $parts
 }
