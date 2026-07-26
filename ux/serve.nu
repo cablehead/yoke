@@ -17,6 +17,8 @@ const DEFAULT_PROVIDER = "gemini"
 const DEFAULT_MODEL = "gemini-3-flash-preview"
 const DEFAULT_SORT = "created"
 const DEFAULT_SORT_DIR = "desc"
+# Tools every run is given. One place, used both to run yoke and to render the context view.
+const TOOLS_SPEC = "code,web_search"
 
 # Columns shown in the model table. sortable columns get a clickable header.
 const MODEL_COLS = [
@@ -62,6 +64,16 @@ def styles [] {
       /* .col centers reading content but the scroll container (#output) spans full width, so
          you can scroll from anywhere in the pane, not only over the 48rem column. */
       .col { max-width: 48rem; margin: 0 auto; padding: 0 1rem; }
+      /* context view: collapsible tool/system parts. native <details>, no JS. */
+      details.context { border-bottom: 1px solid #eee; }
+      details.context > summary { cursor: pointer; padding: 0.5rem 0; color: #888; font-size: 0.8125rem; list-style: none; }
+      details.context > summary::-webkit-details-marker { display: none; }
+      details.part { margin: 0.25rem 0 0.25rem 0.75rem; border-left: 2px solid #eee; padding-left: 0.6rem; }
+      details.part > summary { cursor: pointer; display: flex; gap: 0.5rem; align-items: baseline; }
+      .part-name { font-family: ui-monospace, monospace; font-size: 0.8125rem; }
+      .part-size { color: #aaa; font-size: 0.6875rem; }
+      .part-desc { color: #666; font-size: 0.8125rem; margin: 0.35rem 0; }
+      details.part pre { font-size: 0.6875rem; max-height: 18rem; overflow: auto; margin: 0.25rem 0; }
       @keyframes blink { 50% { opacity: 0; } }
       /* multi-lane view: .reading is the main view; pulling away ($_zoom -> .pulled) swaps in
          .tree, the whole conversation as an aligned node tree. Both stay in the DOM. */
@@ -287,12 +299,44 @@ def composer [] {
   ]
 }
 
-# The reading pane for a head: the card stack plus the composer. This is the default mode
-# of the #view region; /lanes swaps in lanes-view, and returning here restores it. #output is
-# the full-width scroll container; cards center inside a .col so the gutters scroll too.
+# A byte count and its ~token estimate (bytes/4), the same heuristic yoke budgets with.
+def size-label [bytes: int] {
+  $"($bytes) B  ~(($bytes / 4) | math round) tok"
+}
+
+# The usually-invisible part of the context window, surfaced: the tool definitions yoke sends.
+# Collapsed to name + size; expand for the schema. Regenerated from `yoke tools` with the same
+# spec the run uses, so it always matches what the model is told. No token field is stored --
+# size is derived from each line's bytes here.
+def render-context [] {
+  let tools = try {
+    ^yoke tools ...($TOOLS_SPEC | split row ",") | lines | where {|l| $l != "" } | each { from json }
+  } catch { [] }
+  if ($tools | is-empty) { return "" }
+  let total = $tools | each {|t| $t | to json | str length } | math sum
+  DETAILS {class: "context"} [
+    (SUMMARY $"context  --  ($tools | length) tools, (size-label $total)")
+    ...($tools | each {|t|
+      let bytes = $t | to json | str length
+      DETAILS {class: "part"} [
+        (SUMMARY [
+          (SPAN {class: "part-name"} $t.name)
+          (SPAN {class: "part-size"} (size-label $bytes))
+        ])
+        (DIV {class: "part-desc"} ($t.description? | default ""))
+        (PRE ($t.parameters? | default {} | to json --indent 2))
+      ]
+    })
+  ]
+}
+
+# The reading pane for a head: the context view, the card stack, and the composer. This is the
+# default mode of the #view region; /lanes swaps in lanes-view, and returning here restores it.
+# #output is the full-width scroll container; cards center inside a .col so the gutters scroll.
 def read-view [head: string] {
   let cards = if ($head | is-empty) { [] } else { render-run (thread-lines $head) }
   [
+    (DIV {class: "col"} (render-context))
     (DIV {id: "output"} (DIV {class: "col"} ...$cards))
     (composer)
   ]
@@ -565,7 +609,7 @@ def handle-sse [req: record] {
   # yoke echoes the prior context verbatim then the new turn; skip the echoed prior so each
   # frame stores just this turn, linked to its parent via `continues` (the xs thread model).
   $prior
-    | yoke --provider $provider --model $model --tools code,web_search $prompt
+    | yoke --provider $provider --model $model --tools $TOOLS_SPEC $prompt
     | lines
     | tee {
         let all = $in
