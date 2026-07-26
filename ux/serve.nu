@@ -69,7 +69,6 @@ def styles [] {
       /* context view: system + tool parts, rendered inline at the start of the conversation.
          each is a native <details> that expands in place. no JS. classes not child combinators
          since > gets escaped in <style> text. */
-      .ctx-divider { padding: 0.75rem 0 0.25rem; margin-top: 0.5rem; border-top: 1px solid #eee; color: #bbb; font-size: 0.75rem; }
       details.part { margin: 0.25rem 0 0.25rem 0.75rem; border-left: 2px solid #eee; padding-left: 0.6rem; }
       .part-summary { cursor: pointer; display: flex; gap: 0.5rem; align-items: baseline; list-style: none; }
       .part-summary::-webkit-details-marker { display: none; }
@@ -77,8 +76,11 @@ def styles [] {
       .part-size { color: #aaa; font-size: 0.6875rem; }
       .part-desc { color: #666; font-size: 0.8125rem; margin: 0.35rem 0; }
       details.part pre { font-size: 0.6875rem; max-height: 18rem; overflow: auto; margin: 0.25rem 0; }
-      /* per-message raw toggle: subtle, collapsed by default. */
-      .raw-summary { cursor: pointer; color: #bbb; font-size: 0.6875rem; list-style: none; margin: -0.4rem 0 0.5rem; }
+      /* per-node action row: fork (forkable turns) + raw toggle. subtle, above the next card. */
+      .actions { display: flex; align-items: baseline; gap: 0.75rem; margin: -0.4rem 0 0.5rem; }
+      .act-btn { border: 0; background: transparent; cursor: pointer; color: #999; font-size: 0.6875rem; padding: 0; }
+      .act-btn:hover { color: #1a4b8c; }
+      .raw-summary { cursor: pointer; color: #bbb; font-size: 0.6875rem; list-style: none; }
       .raw-summary::-webkit-details-marker { display: none; }
       details.raw pre { font-size: 0.6875rem; max-height: 18rem; overflow: auto; }
       /* collapsible tool card: peek by default, [+]/[-] toggle to expand. CSS-only. */
@@ -399,11 +401,8 @@ def render-context [head: string] {
     let t = $line | from json
     render-part $t.name ($line | str length) ($t.description? | default "") ($t.parameters? | default {} | to json --indent 2)
   }
-  let parts = $sys_parts ++ $tool_parts
-  if ($parts | is-empty) { return [] }
-  let total = ($sys | str length) + ($tool_lines | each { str length } | math sum)
-  # A quiet divider then the parts inline -- each expands in place, no aggregated wrapper.
-  [(DIV {class: "ctx-divider"} $"context  --  ($parts | length) parts, (size-label $total)")] ++ $parts
+  # The parts inline -- each expands in place. The tools' total lives in the nav's tools node now.
+  $sys_parts ++ $tool_parts
 }
 
 # The reading pane for a head: the card stack (newest first) with the context parts inline at
@@ -411,7 +410,7 @@ def render-context [head: string] {
 # #context holds the static parts -- both scroll together in .scroll, but streaming only patches
 # #output, so the context stays put. Cards center in a .col so the gutters scroll too.
 def read-view [head: string] {
-  let cards = if ($head | is-empty) { [] } else { render-run (thread-lines $head) }
+  let cards = if ($head | is-empty) { [] } else { render-run (thread-lines $head) --forks (thread $head | get id) }
   [
     (DIV {class: "scroll"} [
       (DIV {id: "output"} (DIV {class: "col"} ...$cards))

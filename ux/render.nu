@@ -129,16 +129,23 @@ def fmt-args [args: any] {
   $args | default {} | items {|k v| $"($k): ($v)" } | str join ", "
 }
 
-# A collapsed "raw" toggle shown under a card -- the message's stored JSONL, every byte.
-def raw-details [msg: record] {
-  DETAILS {class: "raw"} [
-    (SUMMARY {class: "raw-summary"} "raw")
-    (PRE ($msg | to json --indent 2))
+# The per-node action row under a card: fork (only on forkable turn nodes) and the raw JSONL
+# toggle. Fork points $head at this turn's frame, so the next send branches from here.
+def node-actions [msg: record, fork: any] {
+  DIV {class: "actions"} [
+    ...(if $fork != null {
+      [(BUTTON {class: "act-btn", title: "branch from here -- the next send continues this turn", "data-on:click": ("$head = '" + $fork + "'; @get('/load')")} "fork")]
+    } else { [] })
+    (DETAILS {class: "raw"} [
+      (SUMMARY {class: "raw-summary"} "raw")
+      (PRE ($msg | to json --indent 2))
+    ])
   ]
 }
 
-# Render a complete run as a stack of cards from stored JSONL lines
-export def render-run [lines: list] {
+# Render a complete run as a stack of cards from stored JSONL lines. `forks` is the turn frame
+# ids (by turn index); a user card gets a fork action pointing at its turn's frame.
+export def render-run [lines: list, --forks: list = []] {
   # Map each tool call id -> its compact args, sourced from the assistant messages.
   let call_args = $lines
     | where {|m| $m.role? == "assistant" }
@@ -161,6 +168,7 @@ export def render-run [lines: list] {
 
   let items = $lines | enumerate | each {|x|
     let msg = $x.item
+    let turn = if ($msg.role? == "user") { $user_positions | enumerate | where {|u| $u.item == $x.index } | get -i 0.index | default 0 } else { null }
     let card = match $msg.role? {
       "user" => {
         let text = $msg.content?
@@ -169,7 +177,6 @@ export def render-run [lines: list] {
           | get text?
           | compact
           | str join ""
-        let turn = $user_positions | enumerate | where {|u| $u.item == $x.index } | get -i 0.index | default 0
         render-user $text --id $"turn-($turn)"
       }
       "assistant" => {
@@ -203,13 +210,16 @@ export def render-run [lines: list] {
       }
       _ => null
     }
-    if $card == null { null } else { {card: $card, msg: $msg, tool: ($msg.role? == "toolResult"), id: ($msg.toolCallId? | default ($x.index | into string))} }
+    if $card == null { null } else {
+      let fork = if ($turn != null) { $forks | get -i $turn } else { null }
+      {card: $card, msg: $msg, tool: ($msg.role? == "toolResult"), id: ($msg.toolCallId? | default ($x.index | into string)), fork: $fork}
+    }
   } | compact
   # Newest first. The top item stays full; older tool cards collapse to a peek you can expand.
   $items | reverse | enumerate | each {|y|
     let it = $y.item
     let body = if ($y.index != 0 and $it.tool) { collapsible-tool $it.card $it.id } else { $it.card }
-    DIV {class: "msg"} [$body (raw-details $it.msg)]
+    DIV {class: "msg"} [$body (node-actions $it.msg $it.fork)]
   }
 }
 
