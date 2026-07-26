@@ -272,11 +272,12 @@ def lanes-view [head: string] {
 
 # Left pane: a table of contents for the current thread. Each turn gets two entries -- the
 # user's question (scrolls to #turn-N) and the turn's final response (scrolls to #resp-N) --
-# so long agentic turns are navigable to the answer, not just the prompt.
+# so long agentic turns are navigable to the answer, not just the prompt. Newest turn first, to
+# match the reading view; the index is kept for the anchors (which stay chronological).
 def thread-toc [head: string] {
   if ($head | is-empty) { return [] }
   let clip = {|s: string, n: int| if ($s | str length) > $n { ($s | str substring 0..$n) + "..." } else { $s } }
-  thread $head | enumerate | each {|t|
+  thread $head | enumerate | reverse | each {|t|
     let n = $t.index | into string
     let jump = "border: 0; background: transparent; cursor: pointer; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit;"
     [
