@@ -335,18 +335,13 @@ def render-node-row [n: record] {
   ]
 }
 
-# Left pane: the context window as a token-annotated outline, newest turn first (largest
-# cumulative on top), the tools node at the base. Each node shows its own tokens and the running
-# cumulative -- the real per-node cost from the model, so you can watch the window fill up.
+# Left pane: the context window as a token-annotated outline. Fully reversed -- the newest node
+# (largest cumulative) is on top, counting straight down to the tools node at the base. Strictly
+# monotonic, so the number never appears to drop; within a turn the response leads and the prompt
+# is the root at the bottom of its group. Each node shows its own tokens and the running total.
 def thread-toc [head: string] {
   if ($head | is-empty) { return [] }
-  let outline = context-outline $head
-  let tools_node = $outline | where {|n| $n.kind == "tools" }
-  let convo = $outline | where {|n| $n.kind != "tools" }
-  # Reverse at the turn level (newest first) but keep prompt -> calls -> response within a turn.
-  let frames = $convo | get frame | uniq
-  let ordered = ($frames | reverse | each {|fid| $convo | where {|n| $n.frame == $fid } } | flatten) ++ $tools_node
-  $ordered | each {|n| render-node-row $n }
+  context-outline $head | reverse | each {|n| render-node-row $n }
 }
 
 # The composer: model button, prompt input, send. Belongs to the reading view only. Full-width
