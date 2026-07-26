@@ -129,6 +129,14 @@ def fmt-args [args: any] {
   $args | default {} | items {|k v| $"($k): ($v)" } | str join ", "
 }
 
+# A collapsed "raw" toggle shown under a card -- the message's stored JSONL, every byte.
+def raw-details [msg: record] {
+  DETAILS {class: "raw"} [
+    (SUMMARY "raw")
+    (PRE ($msg | to json --indent 2))
+  ]
+}
+
 # Render a complete run as a stack of cards from stored JSONL lines
 export def render-run [lines: list] {
   # Map each tool call id -> its compact args, sourced from the assistant messages.
@@ -153,7 +161,7 @@ export def render-run [lines: list] {
 
   $lines | enumerate | each {|x|
     let msg = $x.item
-    match $msg.role? {
+    let card = match $msg.role? {
       "user" => {
         let text = $msg.content?
           | default []
@@ -195,6 +203,7 @@ export def render-run [lines: list] {
       }
       _ => null
     }
+    if $card == null { null } else { DIV {class: "msg"} [$card (raw-details $msg)] }
   } | compact
 }
 

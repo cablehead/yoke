@@ -74,6 +74,10 @@ def styles [] {
       .part-size { color: #aaa; font-size: 0.6875rem; }
       .part-desc { color: #666; font-size: 0.8125rem; margin: 0.35rem 0; }
       details.part pre { font-size: 0.6875rem; max-height: 18rem; overflow: auto; margin: 0.25rem 0; }
+      /* per-message raw toggle: subtle, collapsed by default. */
+      details.raw > summary { cursor: pointer; color: #bbb; font-size: 0.6875rem; list-style: none; margin: -0.4rem 0 0.5rem; }
+      details.raw > summary::-webkit-details-marker { display: none; }
+      details.raw pre { font-size: 0.6875rem; max-height: 18rem; overflow: auto; }
       @keyframes blink { 50% { opacity: 0; } }
       /* multi-lane view: .reading is the main view; pulling away ($_zoom -> .pulled) swaps in
          .tree, the whole conversation as an aligned node tree. Both stay in the DOM. */
@@ -304,29 +308,47 @@ def size-label [bytes: int] {
   $"($bytes) B  ~(($bytes / 4) | math round) tok"
 }
 
-# The usually-invisible part of the context window, surfaced: the tool definitions yoke sends.
-# Collapsed to name + size; expand for the schema. Regenerated from `yoke tools` with the same
-# spec the run uses, so it always matches what the model is told. No token field is stored --
-# size is derived from each line's bytes here.
-def render-context [] {
+# One collapsible context part: name + size in the summary, optional description, body preview.
+def render-part [name: string, bytes: int, desc: string, body: string] {
+  DETAILS {class: "part"} [
+    (SUMMARY [
+      (SPAN {class: "part-name"} $name)
+      (SPAN {class: "part-size"} (size-label $bytes))
+    ])
+    ...(if ($desc | is-not-empty) { [(DIV {class: "part-desc"} $desc)] } else { [] })
+    (PRE $body)
+  ]
+}
+
+# The usually-invisible part of the context window, surfaced: the system prompt and the tool
+# definitions yoke sends. Collapsed to name + size; expand for the text/schema. Tools are
+# regenerated from `yoke tools` (the same spec the run uses); the system prompt comes from the
+# thread. Size is derived from each part's bytes -- no token field is stored.
+def render-context [head: string] {
+  let sys = if ($head | is-empty) { "" } else {
+    let m = thread-lines $head | where {|m| $m.role? == "system" } | get -i 0
+    if $m == null { "" } else {
+      let c = $m.content?
+      if (($c | describe) | str starts-with "list") {
+        $c | where {|b| $b.type? == "text" } | get -i 0.text | default ""
+      } else {
+        $c | default "" | into string
+      }
+    }
+  }
   let tools = try {
     ^yoke tools ...($TOOLS_SPEC | split row ",") | lines | where {|l| $l != "" } | each { from json }
   } catch { [] }
-  if ($tools | is-empty) { return "" }
-  let total = $tools | each {|t| $t | to json | str length } | math sum
+  let sys_parts = if ($sys | is-empty) { [] } else { [(render-part "system prompt" ($sys | str length) "" $sys)] }
+  let tool_parts = $tools | each {|t|
+    render-part $t.name ($t | to json | str length) ($t.description? | default "") ($t.parameters? | default {} | to json --indent 2)
+  }
+  let parts = $sys_parts ++ $tool_parts
+  if ($parts | is-empty) { return "" }
+  let total = ($sys | str length) + ($tools | each {|t| $t | to json | str length } | math sum)
   DETAILS {class: "context"} [
-    (SUMMARY $"context  --  ($tools | length) tools, (size-label $total)")
-    ...($tools | each {|t|
-      let bytes = $t | to json | str length
-      DETAILS {class: "part"} [
-        (SUMMARY [
-          (SPAN {class: "part-name"} $t.name)
-          (SPAN {class: "part-size"} (size-label $bytes))
-        ])
-        (DIV {class: "part-desc"} ($t.description? | default ""))
-        (PRE ($t.parameters? | default {} | to json --indent 2))
-      ]
-    })
+    (SUMMARY $"context  --  ($parts | length) parts, (size-label $total)")
+    ...$parts
   ]
 }
 
@@ -336,7 +358,7 @@ def render-context [] {
 def read-view [head: string] {
   let cards = if ($head | is-empty) { [] } else { render-run (thread-lines $head) }
   [
-    (DIV {class: "col"} (render-context))
+    (DIV {class: "col"} (render-context $head))
     (DIV {id: "output"} (DIV {class: "col"} ...$cards))
     (composer)
   ]
