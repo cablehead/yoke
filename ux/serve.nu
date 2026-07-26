@@ -60,15 +60,16 @@ def styles [] {
       table { width: 100%; border-collapse: collapse; font-family: ui-monospace, monospace; font-size: 0.75rem; }
       th { text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid #ccc; position: sticky; top: 0; background: #fff; }
       td { padding: 0.3rem 0.5rem; }
-      #output { flex: 1; overflow-y: auto; padding: 1rem 0; }
-      /* .col centers reading content but the scroll container (#output) spans full width, so
-         you can scroll from anywhere in the pane, not only over the 48rem column. */
+      /* .scroll is the full-width scroll container (so you can scroll from anywhere, not only
+         over the 48rem column); .col centers content inside it. */
+      .scroll { flex: 1; overflow-y: auto; }
+      #output { padding: 1rem 0 0; }
+      #context { padding: 0 0 1rem; }
       .col { max-width: 48rem; margin: 0 auto; padding: 0 1rem; }
-      /* context view: collapsible tool/system parts. native <details>, no JS. classes (not
-         child combinators) since > gets escaped in <style> text. */
-      details.context { border-bottom: 1px solid #eee; }
-      .ctx-summary { cursor: pointer; padding: 0.5rem 0; color: #888; font-size: 0.8125rem; list-style: none; }
-      .ctx-summary::-webkit-details-marker { display: none; }
+      /* context view: system + tool parts, rendered inline at the start of the conversation.
+         each is a native <details> that expands in place. no JS. classes not child combinators
+         since > gets escaped in <style> text. */
+      .ctx-divider { padding: 0.75rem 0 0.25rem; margin-top: 0.5rem; border-top: 1px solid #eee; color: #bbb; font-size: 0.75rem; }
       details.part { margin: 0.25rem 0 0.25rem 0.75rem; border-left: 2px solid #eee; padding-left: 0.6rem; }
       .part-summary { cursor: pointer; display: flex; gap: 0.5rem; align-items: baseline; list-style: none; }
       .part-summary::-webkit-details-marker { display: none; }
@@ -355,22 +356,23 @@ def render-context [head: string] {
     render-part $t.name ($t | to json | str length) ($t.description? | default "") ($t.parameters? | default {} | to json --indent 2)
   }
   let parts = $sys_parts ++ $tool_parts
-  if ($parts | is-empty) { return "" }
+  if ($parts | is-empty) { return [] }
   let total = ($sys | str length) + ($tools | each {|t| $t | to json | str length } | math sum)
-  DETAILS {class: "context"} [
-    (SUMMARY {class: "ctx-summary"} $"context  --  ($parts | length) parts, (size-label $total)")
-    ...$parts
-  ]
+  # A quiet divider then the parts inline -- each expands in place, no aggregated wrapper.
+  [(DIV {class: "ctx-divider"} $"context  --  ($parts | length) parts, (size-label $total)")] ++ $parts
 }
 
-# The reading pane for a head: the context view, the card stack, and the composer. This is the
-# default mode of the #view region; /lanes swaps in lanes-view, and returning here restores it.
-# #output is the full-width scroll container; cards center inside a .col so the gutters scroll.
+# The reading pane for a head: the card stack (newest first) with the context parts inline at
+# the chronological start (the bottom), then the composer. #output holds the streamed messages;
+# #context holds the static parts -- both scroll together in .scroll, but streaming only patches
+# #output, so the context stays put. Cards center in a .col so the gutters scroll too.
 def read-view [head: string] {
   let cards = if ($head | is-empty) { [] } else { render-run (thread-lines $head) }
   [
-    (DIV {class: "col"} (render-context $head))
-    (DIV {id: "output"} (DIV {class: "col"} ...$cards))
+    (DIV {class: "scroll"} [
+      (DIV {id: "output"} (DIV {class: "col"} ...$cards))
+      (DIV {id: "context"} (DIV {class: "col"} ...(render-context $head)))
+    ])
     (composer)
   ]
 }
