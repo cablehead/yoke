@@ -87,6 +87,10 @@ def styles [] {
       /* collapsible tool card: peek by default, [+]/[-] toggle to expand. CSS-only. */
       .collapsible { position: relative; }
       .collapsible .card { max-height: 5rem; overflow: hidden; -webkit-mask-image: linear-gradient(#000 55%, transparent); mask-image: linear-gradient(#000 55%, transparent); }
+      /* tool-definition cards: full description, schema behind a toggle. */
+      .card.tool.def .schema { margin-top: 0.4rem; }
+      .schema-summary { cursor: pointer; color: #999; font-size: 0.6875rem; list-style: none; }
+      .schema-summary::-webkit-details-marker { display: none; }
       .exp-cb:checked ~ .card { max-height: none; -webkit-mask-image: none; mask-image: none; }
       .exp-toggle { position: absolute; top: 0.3rem; right: 0.4rem; z-index: 2; cursor: pointer; color: #999; background: #fff; border-radius: 0.25rem; padding: 0.05rem 0.25rem; line-height: 1; font-family: ui-monospace, monospace; font-size: 0.75rem; user-select: none; }
       .exp-toggle .i-minus { display: none; }
@@ -329,12 +333,19 @@ def context-outline [head: string] {
 }
 
 # Render one outline row: label (indented by kind), the node's own tokens, and the cumulative.
+# The tools row is a transclusion: clicking it toggles the tool cards in the reading pane (which
+# are hidden by default) rather than just scrolling -- the whole tool set behind one row.
 def render-node-row [n: record] {
   let clip = {|s: string, m: int| if ($s | str length) > $m { ($s | str substring 0..$m) + "..." } else { $s } }
   let indent = if ($n.kind in ["prompt" "tools"]) { "0.75rem" } else { "1.75rem" }
   let color = if $n.kind == "prompt" { "#222" } else if $n.kind == "toolcall" { "#888" } else { "#555" }
   let label = if $n.kind == "toolcall" { $n.label } else { (do $clip $n.label 30) }
-  DIV {class: "node", style: "display: flex; align-items: baseline; gap: 0.4rem;", "data-on:click": ("document.getElementById('" + $n.anchor + "')?.scrollIntoView({behavior: 'smooth', block: 'start'})")} [
+  let onclick = if $n.kind == "tools" {
+    "$_toolsOpen = !$_toolsOpen; $_toolsOpen && setTimeout(() => document.getElementById('context')?.scrollIntoView({behavior: 'smooth', block: 'start'}), 50)"
+  } else {
+    ("document.getElementById('" + $n.anchor + "')?.scrollIntoView({behavior: 'smooth', block: 'start'})")
+  }
+  DIV {class: "node", style: "display: flex; align-items: baseline; gap: 0.4rem;", "data-on:click": $onclick} [
     (SPAN {style: ("flex: 1; min-width: 0; padding-left: " + $indent + "; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: " + $color + ";")} $label)
     (SPAN {class: "node-tok"} ("+" + (commafy $n.node)))
     (SPAN {class: "node-cum"} (commafy $n.cum))
@@ -344,9 +355,9 @@ def render-node-row [n: record] {
 # Left pane: the context window as a token-annotated outline. Fully reversed -- the newest node
 # (largest cumulative) is on top, counting straight down to the tools node at the base. Strictly
 # monotonic, so the number never appears to drop; within a turn the response leads and the prompt
-# is the root at the bottom of its group. Each node shows its own tokens and the running total.
+# is the root at the bottom of its group. The tools row is always present (even on a fresh thread),
+# so the tool set lives in the sidebar and stays out of the reading pane until you open it.
 def thread-toc [head: string] {
-  if ($head | is-empty) { return [] }
   context-outline $head | reverse | each {|n| render-node-row $n }
 }
 
@@ -387,11 +398,11 @@ def render-context [head: string] {
     ^yoke tools ...($TOOLS_SPEC | split row ",") | lines | where {|l| $l != "" }
   } catch { [] }
   let sys_cards = if ($sys | is-empty) { [] } else {
-    [(collapsible-tool (render-tool-def "system prompt" ($sys | str length) "" $sys) "def-system")]
+    [(render-tool-def "system prompt" ($sys | str length) "" $sys)]
   }
   let tool_cards = $tool_lines | each {|line|
     let t = $line | from json
-    collapsible-tool (render-tool-def $t.name ($line | str length) ($t.description? | default "") ($t.parameters? | default {} | to json --indent 2)) $"def-($t.name)"
+    render-tool-def $t.name ($line | str length) ($t.description? | default "") ($t.parameters? | default {} | to json --indent 2)
   }
   $sys_cards ++ $tool_cards
 }
@@ -405,7 +416,7 @@ def read-view [head: string] {
   [
     (DIV {class: "scroll"} [
       (DIV {id: "output"} (DIV {class: "col"} ...$cards))
-      (DIV {id: "context"} (DIV {class: "col"} ...(render-context $head)))
+      (DIV {id: "context", "data-show": "$_toolsOpen"} (DIV {class: "col"} ...(render-context $head)))
     ])
     (composer)
   ]
@@ -433,7 +444,7 @@ def page [resume: string] {
       ...(styles)
   ) (
     BODY {
-      "data-signals": ("{ model: '" + $default_model + "', provider: '" + $default_provider + "', model_filter: '', model_sort: '" + $DEFAULT_SORT + "', model_sort_dir: '" + $DEFAULT_SORT_DIR + "', model_sort_click: '', _pickerOpen: false, _zoom: false, session: '" + $session + "', head: '" + $head + "' }")
+      "data-signals": ("{ model: '" + $default_model + "', provider: '" + $default_provider + "', model_filter: '', model_sort: '" + $DEFAULT_SORT + "', model_sort_dir: '" + $DEFAULT_SORT_DIR + "', model_sort_click: '', _pickerOpen: false, _zoom: false, _toolsOpen: false, session: '" + $session + "', head: '" + $head + "' }")
       "data-init": "@get('/ui')"
     } [
       (DIV {style: "display: grid; grid-template-columns: 16rem 1fr; height: 100vh;"} [

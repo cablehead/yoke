@@ -101,8 +101,9 @@ export def render-tool-result [tool_name: string, content: string, --args: strin
   ]
 }
 
-# Render a tool *definition* (schema) as a card in the same family as a tool result: the name and
-# size in the status bar, the description, and the parameter schema. A tool def is a context node.
+# Render a tool *definition* as a card in the same family as a tool result: name + size in the
+# status bar, then what the user needs to know -- the description. The verbose parameter schema
+# sits behind a `schema` toggle. A tool def is a context node.
 export def render-tool-def [name: string, bytes: int, description: string, schema: string] {
   DIV {class: "card tool def"} [
     (DIV {class: "tool-head"} [
@@ -110,7 +111,10 @@ export def render-tool-def [name: string, bytes: int, description: string, schem
       (SPAN {class: "tool-size"} $"($bytes) B  ~(($bytes / 4) | math round) tok")
     ])
     ...(if ($description | is-not-empty) { [(DIV {class: "tool-desc"} $description)] } else { [] })
-    (PRE {class: "tool-out"} $schema)
+    (DETAILS {class: "schema"} [
+      (SUMMARY {class: "schema-summary"} "schema")
+      (PRE {class: "tool-out"} $schema)
+    ])
   ]
 }
 
