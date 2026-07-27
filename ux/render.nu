@@ -101,20 +101,22 @@ export def render-tool-result [tool_name: string, content: string, --args: strin
   ]
 }
 
-# Render a tool *definition* as a card in the same family as a tool result: name + size in the
-# status bar, then what the user needs to know -- the description. The verbose parameter schema
-# sits behind a `schema` toggle. A tool def is a context node.
+# Render a tool *definition* as a card in the same family as a tool result: name + size + a
+# `schema` toggle in the status bar, then the description (what the user needs to know). The
+# verbose schema is revealed by the header toggle (a CSS checkbox, so it survives morphs).
 export def render-tool-def [name: string, bytes: int, description: string, schema: string] {
+  let cb = $"sc-($name)"
   DIV {class: "card tool def"} [
+    (INPUT {type: "checkbox", id: $cb, class: "schema-cb", style: "display: none;"})
     (DIV {class: "tool-head"} [
       (SPAN {class: "tool-name"} $name)
-      (SPAN {class: "tool-size"} $"($bytes) B  ~(($bytes / 4) | math round) tok")
+      (SPAN {class: "tool-meta"} [
+        (SPAN {class: "tool-size"} $"($bytes) B  ~(($bytes / 4) | math round) tok")
+        (LABEL {for: $cb, class: "schema-toggle"} "schema")
+      ])
     ])
     ...(if ($description | is-not-empty) { [(DIV {class: "tool-desc"} $description)] } else { [] })
-    (DETAILS {class: "schema"} [
-      (SUMMARY {class: "schema-summary"} "schema")
-      (PRE {class: "tool-out"} $schema)
-    ])
+    (PRE {class: "tool-schema"} $schema)
   ]
 }
 

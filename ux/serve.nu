@@ -87,10 +87,19 @@ def styles [] {
       /* collapsible tool card: peek by default, [+]/[-] toggle to expand. CSS-only. */
       .collapsible { position: relative; }
       .collapsible .card { max-height: 5rem; overflow: hidden; -webkit-mask-image: linear-gradient(#000 55%, transparent); mask-image: linear-gradient(#000 55%, transparent); }
-      /* tool-definition cards: full description, schema behind a toggle. */
-      .card.tool.def .schema { margin-top: 0.4rem; }
-      .schema-summary { cursor: pointer; color: #999; font-size: 0.6875rem; list-style: none; }
-      .schema-summary::-webkit-details-marker { display: none; }
+      /* tools transclusion: one row summarizing the set; click to expand into the cards. */
+      .tools-row { display: flex; align-items: baseline; gap: 0.5rem; cursor: pointer; padding: 0.6rem 0; color: #888; font-size: 0.8125rem; border-top: 1px solid #eee; }
+      .tools-row:hover { color: #1a4b8c; }
+      .tools-mark { font-family: ui-monospace, monospace; font-size: 0.6875rem; color: #aaa; }
+      .tools-label { font-weight: 600; color: #555; }
+      .tools-names { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, monospace; font-size: 0.75rem; }
+      .tools-tok { color: #aaa; font-size: 0.6875rem; }
+      /* tool-definition cards: full description; schema behind the header toggle. */
+      .tool-meta { display: flex; align-items: baseline; gap: 0.6rem; }
+      .schema-toggle { cursor: pointer; color: #999; font-size: 0.6875rem; }
+      .schema-toggle:hover { color: #1a4b8c; }
+      .tool-schema { display: none; margin: 0.4rem 0 0; white-space: pre-wrap; font-size: 0.6875rem; max-height: 16rem; overflow: auto; }
+      .schema-cb:checked ~ .tool-schema { display: block; }
       .exp-cb:checked ~ .card { max-height: none; -webkit-mask-image: none; mask-image: none; }
       .exp-toggle { position: absolute; top: 0.3rem; right: 0.4rem; z-index: 2; cursor: pointer; color: #999; background: #fff; border-radius: 0.25rem; padding: 0.05rem 0.25rem; line-height: 1; font-family: ui-monospace, monospace; font-size: 0.75rem; user-select: none; }
       .exp-toggle .i-minus { display: none; }
@@ -333,18 +342,14 @@ def context-outline [head: string] {
 }
 
 # Render one outline row: label (indented by kind), the node's own tokens, and the cumulative.
-# The tools row is a transclusion: clicking it toggles the tool cards in the reading pane (which
-# are hidden by default) rather than just scrolling -- the whole tool set behind one row.
+# Clicking jumps to the node's card/anchor; the tools row jumps to the transclusion row in the
+# reading pane (which is where the expand lives).
 def render-node-row [n: record] {
   let clip = {|s: string, m: int| if ($s | str length) > $m { ($s | str substring 0..$m) + "..." } else { $s } }
   let indent = if ($n.kind in ["prompt" "tools"]) { "0.75rem" } else { "1.75rem" }
   let color = if $n.kind == "prompt" { "#222" } else if $n.kind == "toolcall" { "#888" } else { "#555" }
   let label = if $n.kind == "toolcall" { $n.label } else { (do $clip $n.label 30) }
-  let onclick = if $n.kind == "tools" {
-    "$_toolsOpen = !$_toolsOpen; $_toolsOpen && setTimeout(() => document.getElementById('context')?.scrollIntoView({behavior: 'smooth', block: 'start'}), 50)"
-  } else {
-    ("document.getElementById('" + $n.anchor + "')?.scrollIntoView({behavior: 'smooth', block: 'start'})")
-  }
+  let onclick = ("document.getElementById('" + $n.anchor + "')?.scrollIntoView({behavior: 'smooth', block: 'start'})")
   DIV {class: "node", style: "display: flex; align-items: baseline; gap: 0.4rem;", "data-on:click": $onclick} [
     (SPAN {style: ("flex: 1; min-width: 0; padding-left: " + $indent + "; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: " + $color + ";")} $label)
     (SPAN {class: "node-tok"} ("+" + (commafy $n.node)))
@@ -400,11 +405,25 @@ def render-context [head: string] {
   let sys_cards = if ($sys | is-empty) { [] } else {
     [(render-tool-def "system prompt" ($sys | str length) "" $sys)]
   }
-  let tool_cards = $tool_lines | each {|line|
-    let t = $line | from json
-    render-tool-def $t.name ($line | str length) ($t.description? | default "") ($t.parameters? | default {} | to json --indent 2)
+  let tools = $tool_lines | each { from json }
+  let tool_cards = $tools | zip $tool_lines | each {|pair|
+    let t = $pair.0
+    render-tool-def $t.name ($pair.1 | str length) ($t.description? | default "") ($t.parameters? | default {} | to json --indent 2)
   }
-  $sys_cards ++ $tool_cards
+  let cards = $sys_cards ++ $tool_cards
+  if ($cards | is-empty) { return [] }
+  # A single transclusion row summarizing the tools; click it to expand into the cards.
+  let names = $tools | get name | str join ", "
+  let total = ($sys | str length) + ($tool_lines | each { str length } | math sum)
+  [
+    (DIV {class: "tools-row", "data-on:click": "$_toolsOpen = !$_toolsOpen"} [
+      (SPAN {class: "tools-mark", "data-text": "$_toolsOpen ? '[-]' : '[+]'"} "[+]")
+      (SPAN {class: "tools-label"} "tools")
+      (SPAN {class: "tools-names"} $names)
+      (SPAN {class: "tools-tok"} (size-label $total))
+    ])
+    (DIV {"data-show": "$_toolsOpen"} $cards)
+  ]
 }
 
 # The reading pane for a head: the card stack (newest first) with the context parts inline at
@@ -416,7 +435,7 @@ def read-view [head: string] {
   [
     (DIV {class: "scroll"} [
       (DIV {id: "output"} (DIV {class: "col"} ...$cards))
-      (DIV {id: "context", "data-show": "$_toolsOpen"} (DIV {class: "col"} ...(render-context $head)))
+      (DIV {id: "context"} (DIV {class: "col"} ...(render-context $head)))
     ])
     (composer)
   ]
