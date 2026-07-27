@@ -8,7 +8,7 @@
 //! Both return a stream of `AgentEvent`s.
 
 use crate::context::{
-    self, CompactionStrategy, ContextConfig, DefaultCompaction, ExecutionLimits, ExecutionTracker,
+    CompactionStrategy, ContextConfig, DefaultCompaction, ExecutionLimits, ExecutionTracker,
 };
 use crate::provider::{ModelConfig, StreamConfig, StreamEvent, StreamProvider, ToolDefinition};
 use crate::types::*;
@@ -413,13 +413,9 @@ async fn run_loop(
                 }
             }
 
-            // Track turn for execution limits
+            // Track turn for execution limits (max_turns / max_duration)
             if let Some(ref mut tracker) = tracker {
-                let turn_tokens = match &message {
-                    Message::Assistant { usage, .. } => (usage.input + usage.output) as usize,
-                    _ => context::message_tokens(&agent_msg),
-                };
-                tracker.record_turn(turn_tokens);
+                tracker.record_turn();
             }
 
             // after_turn callback
