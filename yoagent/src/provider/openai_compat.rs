@@ -91,6 +91,9 @@ impl StreamProvider for OpenAiCompatProvider {
                                 if let Some(details) = &u.prompt_tokens_details {
                                     usage.cache_read = details.cached_tokens;
                                 }
+                                if let Some(details) = &u.completion_tokens_details {
+                                    usage.thinking_tokens = details.reasoning_tokens;
+                                }
                             }
 
                             for choice in &chunk.choices {
@@ -582,6 +585,8 @@ struct OpenAiUsage {
     total_tokens: u64,
     #[serde(default)]
     prompt_tokens_details: Option<OpenAiPromptTokensDetails>,
+    #[serde(default)]
+    completion_tokens_details: Option<OpenAiCompletionTokensDetails>,
 }
 
 #[derive(Deserialize)]
@@ -590,10 +595,43 @@ struct OpenAiPromptTokensDetails {
     cached_tokens: u64,
 }
 
+#[derive(Deserialize)]
+struct OpenAiCompletionTokensDetails {
+    /// How much of the output was reasoning. Usage carries a `thinking_tokens`
+    /// field for exactly this and nothing on this path was filling it, so a
+    /// reasoning model reported one output total with no way to tell how much
+    /// of it was the answer.
+    #[serde(default)]
+    reasoning_tokens: u64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::provider::model::ModelConfig;
+
+    #[test]
+    fn test_reasoning_tokens_captured_from_usage() {
+        // OpenRouter reports how much of the output was reasoning in
+        // completion_tokens_details.reasoning_tokens. Without it a caller sees
+        // one output total and cannot tell how much of it was the answer.
+        let usage: OpenAiUsage = serde_json::from_str(
+            r#"{"prompt_tokens":713,"completion_tokens":2535,"total_tokens":3248,
+                "prompt_tokens_details":{"cached_tokens":704},
+                "completion_tokens_details":{"reasoning_tokens":2211}}"#,
+        )
+        .expect("valid usage");
+        assert_eq!(usage.completion_tokens_details.unwrap().reasoning_tokens, 2211);
+    }
+
+    #[test]
+    fn test_usage_without_completion_details_is_zero() {
+        // Providers that do not report it must not break the parse.
+        let usage: OpenAiUsage =
+            serde_json::from_str(r#"{"prompt_tokens":10,"completion_tokens":5}"#)
+                .expect("valid usage");
+        assert!(usage.completion_tokens_details.is_none());
+    }
 
     #[test]
     fn test_openrouter_reasoning_stream_captured() {
