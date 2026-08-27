@@ -52,6 +52,7 @@ pub enum Message {
         provider: String,
         usage: Usage,
         timestamp: u64,
+        #[serde(rename = "errorMessage", alias = "error_message")]
         #[serde(skip_serializing_if = "Option::is_none")]
         error_message: Option<String>,
         /// Provider-specific metadata (e.g. Gemini grounding, Anthropic citations)

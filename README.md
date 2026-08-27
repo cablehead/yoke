@@ -316,6 +316,19 @@ The observation lines are the live stream -- tee them to a renderer for
 real-time display. The context lines are the durable state -- save them for
 follow-ups.
 
+### A failed turn is a context line
+
+When the provider rejects the request, the turn still ends with an assistant
+line. It carries `"stopReason":"error"` and an `errorMessage`:
+
+```jsonl
+{"role":"assistant","content":[{"type":"text","text":""}],"stopReason":"error","model":"anthropic/claude-sonnet-5","errorMessage":"API error: HTTP 400 Bad Request: ..."}
+```
+
+The error also goes to stderr, but stdout is where a pipeline can see it. Check
+`stopReason` before you treat the last assistant line as a reply. Without that
+check, the last assistant line in the input echo reads as a fresh answer.
+
 ### The context window is the stream
 
 Nothing is hidden. What the model receives is exactly the context lines you see:

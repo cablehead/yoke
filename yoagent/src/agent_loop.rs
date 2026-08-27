@@ -635,7 +635,7 @@ async fn stream_assistant_response(
         Ok(msg) => msg,
         Err(e) => {
             warn!("Provider error: {}", e);
-            Message::Assistant {
+            let message = Message::Assistant {
                 content: vec![Content::Text {
                     text: String::new(),
                 }],
@@ -646,7 +646,15 @@ async fn stream_assistant_response(
                 timestamp: now_ms(),
                 error_message: Some(e.to_string()),
                 metadata: None,
-            }
+            };
+            // The provider failed before it streamed anything, so the forwarder
+            // never sent a MessageEnd. Send one here, or the failed turn is
+            // invisible to anyone reading the event stream.
+            tx.send(AgentEvent::MessageEnd {
+                message: message.clone().into(),
+            })
+            .ok();
+            message
         }
     }
 }
