@@ -1966,3 +1966,84 @@ async fn test_none_compaction_strategy_uses_default() {
         "Agent should have produced messages"
     );
 }
+
+/// A 400 from the provider arrives before anything streams, so the event
+/// forwarder never sees a Done. The failed turn still has to reach the event
+/// stream, or a consumer reading stdout cannot tell it from a completed one.
+#[tokio::test]
+async fn test_provider_error_emits_message_end() {
+    let provider = std::sync::Arc::new(FailThenSucceedProvider {
+        fail_count: std::sync::atomic::AtomicUsize::new(0),
+        max_failures: 1,
+        error: ProviderError::Auth("HTTP 400 Bad Request: assistant prefill".into()),
+        inner: MockProvider::text("never reached"),
+    });
+
+    let mut config = make_config(MockProvider::text("unused"));
+    config.provider = provider;
+
+    let mut context = AgentContext {
+        system_prompt: "test".into(),
+        messages: Vec::new(),
+        tools: Vec::new(),
+    };
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let cancel = CancellationToken::new();
+    agent_loop(
+        vec![AgentMessage::Llm(Message::user("hi"))],
+        &mut context,
+        &config,
+        tx,
+        cancel,
+    )
+    .await;
+
+    let mut ended: Vec<Message> = Vec::new();
+    while let Ok(event) = rx.try_recv() {
+        if let AgentEvent::MessageEnd {
+            message: AgentMessage::Llm(m),
+        } = event
+        {
+            ended.push(m);
+        }
+    }
+
+    let failed = ended
+        .iter()
+        .find(|m| matches!(m, Message::Assistant { stop_reason, .. } if *stop_reason == StopReason::Error))
+        .expect("no MessageEnd carried the failed turn");
+
+    if let Message::Assistant { error_message, .. } = failed {
+        assert!(error_message
+            .as_ref()
+            .expect("failed turn has no error_message")
+            .contains("assistant prefill"));
+    }
+}
+
+/// The error field goes out as errorMessage, matching stopReason. The old
+/// snake_case name still parses on input.
+#[test]
+fn test_error_message_serializes_camel_case() {
+    let msg = Message::Assistant {
+        content: vec![],
+        stop_reason: StopReason::Error,
+        model: "m".into(),
+        provider: "p".into(),
+        usage: Usage::default(),
+        timestamp: 0,
+        error_message: Some("boom".into()),
+        metadata: None,
+    };
+    let json = serde_json::to_string(&msg).unwrap();
+    assert!(json.contains("\"errorMessage\":\"boom\""), "{json}");
+
+    let old = r#"{"role":"assistant","content":[],"stopReason":"error","model":"m","provider":"p","usage":{"input":0,"output":0,"cache_read":0,"cache_write":0},"timestamp":0,"error_message":"boom"}"#;
+    let parsed: Message = serde_json::from_str(old).unwrap();
+    if let Message::Assistant { error_message, .. } = parsed {
+        assert_eq!(error_message.as_deref(), Some("boom"));
+    } else {
+        panic!("expected assistant");
+    }
+}

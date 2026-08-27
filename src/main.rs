@@ -43,6 +43,9 @@ impl From<ThinkingArg> for ThinkingLevel {
 #[derive(Parser)]
 #[command(about = "Headless agent harness. JSONL in, JSONL out.", version)]
 struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+
     /// Provider: anthropic, openai, gemini, openrouter, ollama
     #[arg(long)]
     provider: Option<String>,
@@ -97,6 +100,16 @@ struct Cli {
     /// Optional trailing prompt appended as a final user message
     #[arg()]
     prompt: Option<String>,
+}
+
+#[derive(clap::Subcommand)]
+enum Command {
+    /// Emit tool definitions as JSONL (a prelude to prepend to your input, instead of
+    /// letting --tools inject them). Names match --tools, e.g. `yoke tools code web_search`.
+    Tools {
+        /// Toolset/tool names (groups: all, code, none; or individual tools)
+        specs: Vec<String>,
+    },
 }
 
 #[derive(Clone)]
@@ -162,8 +175,9 @@ enum DeltaKind {
 
 // -- Input parsing -----------------------------------------------------------
 
-fn parse_stdin() -> (String, Vec<AgentMessage>) {
+fn parse_stdin() -> (String, Vec<serde_json::Value>, Vec<AgentMessage>) {
     let mut system = String::new();
+    let mut tool_decls: Vec<serde_json::Value> = Vec::new();
     let mut messages: Vec<AgentMessage> = Vec::new();
 
     let stdin = io::stdin().lock();
@@ -188,6 +202,12 @@ fn parse_stdin() -> (String, Vec<AgentMessage>) {
                 continue;
             }
         };
+
+        // {"type":"tool",...} lines are tool declarations (a prelude); collect them.
+        if value.get("type").and_then(|t| t.as_str()) == Some("tool") {
+            tool_decls.push(value);
+            continue;
+        }
 
         // Lines with "role" are context messages; everything else is skipped
         let role = match value.get("role").and_then(|r| r.as_str()) {
@@ -216,7 +236,7 @@ fn parse_stdin() -> (String, Vec<AgentMessage>) {
         }
     }
 
-    (system, messages)
+    (system, tool_decls, messages)
 }
 
 // -- Event emission ----------------------------------------------------------
@@ -341,6 +361,110 @@ fn build_tools(spec: &str) -> Vec<Box<dyn AgentTool>> {
     }
 
     tools
+}
+
+/// A tool's definition as one JSONL context line: name, description, and full parameter
+/// schema. Shared by `yoke tools` (the prelude emitter) and the run-time tool echo, so both
+/// speak the same format.
+fn tool_line(tool: &dyn AgentTool) -> serde_json::Value {
+    serde_json::json!({
+        "type": "tool",
+        "name": tool.name(),
+        "description": tool.description(),
+        "parameters": tool.parameters_schema(),
+    })
+}
+
+/// `yoke tools <names...>` -- emit the resolved tool definitions as JSONL, so you can prepend
+/// them to your input instead of yoke injecting them from --tools. Names match --tools.
+fn emit_tool_prelude(specs: &[String]) {
+    if specs.is_empty() || specs.iter().any(|s| s == "-h" || s == "--help") {
+        eprintln!("usage: yoke tools <names...>   e.g. yoke tools code web_search");
+        eprintln!("groups:      all, code, none");
+        eprintln!("individual:  bash, nu, read_file, write_file, edit_file, list_files, search, web_search");
+        return;
+    }
+    for tool in build_tools(&specs.join(",")) {
+        if let Ok(json) = serde_json::to_string(&tool_line(tool.as_ref())) {
+            write_line(&json);
+        }
+    }
+}
+
+/// A tool whose schema (name/description/parameters) comes from a `type:"tool"` input line,
+/// but whose execution delegates to the matching built-in. This makes the prelude the source
+/// of truth for the context window -- edit its schema and that is what the model sees -- while
+/// yoke still runs the tool. The read counterpart to `yoke tools`.
+struct DeclaredTool {
+    name: String,
+    description: String,
+    parameters: serde_json::Value,
+    inner: Box<dyn AgentTool>,
+}
+
+#[async_trait::async_trait]
+impl AgentTool for DeclaredTool {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn label(&self) -> &str {
+        &self.name
+    }
+    fn description(&self) -> &str {
+        &self.description
+    }
+    fn parameters_schema(&self) -> serde_json::Value {
+        self.parameters.clone()
+    }
+    async fn execute(
+        &self,
+        params: serde_json::Value,
+        ctx: ToolContext,
+    ) -> Result<ToolResult, ToolError> {
+        self.inner.execute(params, ctx).await
+    }
+}
+
+/// The built-in tool that executes calls for `name`, or exit with a clear error if none.
+fn builtin_executor(name: &str) -> Box<dyn AgentTool> {
+    build_tools(name)
+        .into_iter()
+        .find(|t| t.name() == name)
+        .unwrap_or_else(|| {
+            eprintln!("no built-in executor for declared tool: {name}");
+            std::process::exit(1);
+        })
+}
+
+/// Turn `type:"tool"` input lines into tools: schema from the line (falling back to the
+/// built-in's when a field is omitted), execution from the built-in.
+fn tools_from_decls(decls: &[serde_json::Value]) -> Vec<Box<dyn AgentTool>> {
+    decls
+        .iter()
+        .map(|d| {
+            let name = d
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let inner = builtin_executor(&name);
+            let description = d
+                .get("description")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .unwrap_or_else(|| inner.description().to_string());
+            let parameters = d
+                .get("parameters")
+                .cloned()
+                .unwrap_or_else(|| inner.parameters_schema());
+            Box::new(DeclaredTool {
+                name,
+                description,
+                parameters,
+                inner,
+            }) as Box<dyn AgentTool>
+        })
+        .collect()
 }
 
 // -- Provider config ---------------------------------------------------------
@@ -548,6 +672,12 @@ fn normalize_model(provider: &str, raw: &serde_json::Value) -> Option<serde_json
 async fn main() {
     let cli = Cli::parse();
 
+    // `yoke tools <names...>` emits a tool-definition prelude (JSONL) and exits.
+    if let Some(Command::Tools { specs }) = &cli.command {
+        emit_tool_prelude(specs);
+        return;
+    }
+
     // Configure the embedded Nushell engine with plugins and include paths
     nu_tool::configure(cli.plugins, cli.include_paths, cli.config);
 
@@ -586,8 +716,8 @@ async fn main() {
         }
     };
 
-    let (system, mut messages) = if io::stdin().is_terminal() {
-        (String::new(), Vec::<AgentMessage>::new())
+    let (system, tool_decls, mut messages) = if io::stdin().is_terminal() {
+        (String::new(), Vec::new(), Vec::<AgentMessage>::new())
     } else {
         parse_stdin()
     };
@@ -622,19 +752,21 @@ async fn main() {
         _ => unreachable!(),
     };
 
-    let tools = match cli.tools.as_deref() {
-        Some(spec) => build_tools(spec),
-        None => Vec::new(),
+    // Tools come from the input prelude (type:"tool" lines) when present; otherwise from the
+    // --tools flag. Prelude wins, so a context you feed back drives its own tools with no
+    // re-injection. The echo below reflects whichever set is used, so it round-trips.
+    let tools = if !tool_decls.is_empty() {
+        if cli.tools.is_some() {
+            eprintln!("note: --tools ignored; using tool declarations from input");
+        }
+        tools_from_decls(&tool_decls)
+    } else {
+        match cli.tools.as_deref() {
+            Some(spec) => build_tools(spec),
+            None => Vec::new(),
+        }
     };
-    let tool_descriptions: Vec<serde_json::Value> = tools
-        .iter()
-        .map(|t| {
-            serde_json::json!({
-                "name": t.name(),
-                "description": t.description(),
-            })
-        })
-        .collect();
+    let tool_lines: Vec<serde_json::Value> = tools.iter().map(|t| tool_line(t.as_ref())).collect();
 
     agent = agent
         .with_model(&model)
@@ -670,9 +802,8 @@ async fn main() {
         }
     }
 
-    if !tool_descriptions.is_empty() {
-        let obs = serde_json::json!({"type": "tools", "tools": tool_descriptions});
-        if let Ok(json) = serde_json::to_string(&obs) {
+    for line in &tool_lines {
+        if let Ok(json) = serde_json::to_string(line) {
             write_line(&json);
         }
     }

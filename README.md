@@ -167,6 +167,31 @@ yoke --provider anthropic --model claude-sonnet-4-20250514 --tools none "explain
 | `search` | Grep/ripgrep pattern search |
 | `web_search` | Provider-side web search |
 
+### Explicit tools (the prelude)
+
+`--tools` is a convenience: it injects tool definitions into the context for
+you. You can also make them explicit. `yoke tools` emits the definitions as
+JSONL -- one line per tool, with the full parameter schema -- so you can see,
+edit, and version exactly what the model is told:
+
+```nushell
+yoke tools code web_search | save -f prelude.jsonl
+```
+
+Prepend that to your input and yoke reads the definitions back instead of
+injecting from `--tools`:
+
+```nushell
+open prelude.jsonl | append (open session.jsonl)
+  | yoke --provider anthropic --model claude-sonnet-4-20250514 "next step"
+```
+
+The prelude is the source of truth: edit a tool's description in `prelude.jsonl`
+and that is exactly what the model sees. Tool definitions in the input take
+precedence over `--tools`, so a saved context drives its own tools with no
+re-injection -- the same way a `role: system` line already carries the system
+prompt. See [Input / Output](#input--output).
+
 ### The nu tool
 
 The builtin `nu` tool runs Nushell scripts in an embedded engine -- no
@@ -235,8 +260,17 @@ Web search is a provider-side capability:
 
 ### Input
 
-JSONL on stdin. Lines with `role` are context messages. Everything else is
-silently skipped.
+JSONL on stdin -- the context window. Context lines are read; observation lines
+(and anything unrecognized) are skipped.
+
+- **Messages** -- lines with `role`: `system`, `user`, `assistant`, `toolResult`.
+- **Tool definitions** -- lines with `type: "tool"` (name, description,
+  parameters). Read as the agent's tools, taking precedence over `--tools`. See
+  [Explicit tools](#explicit-tools-the-prelude).
+
+There are no defaults injected behind your back: no system prompt unless a
+`role: system` line provides one, and -- with a prelude -- no tools unless
+`type: "tool"` lines declare them.
 
 ```nushell
 # simple prompt
@@ -255,15 +289,18 @@ silently skipped.
 
 JSONL on stdout. Two kinds of lines:
 
-**Context lines** have `role`. User messages, assistant responses, tool
-results. These round-trip as input to the next turn.
+**Context lines** are the durable context that round-trips into the next turn:
+messages (`role`: user, assistant, toolResult, system) and tool definitions
+(`type: "tool"`, echoed with their full schema).
 
-**Observation lines** have `type`. Streaming deltas, tool execution, lifecycle
-events. Skipped on input.
+**Observation lines** are the live stream: `type` of `delta`,
+`tool_execution_start`/`end`, `turn_start`/`end`, `agent_start`/`end`. Skipped
+on input.
 
 ```jsonl
 {"type":"agent_start"}
 {"role":"system","content":"..."}
+{"type":"tool","name":"list_files","description":"...","parameters":{...}}
 {"type":"turn_start"}
 {"role":"user","content":[{"type":"text","text":"what files are here?"}],"timestamp":1234}
 {"type":"delta","kind":"text","delta":"I'll check"}
@@ -278,6 +315,33 @@ events. Skipped on input.
 The observation lines are the live stream -- tee them to a renderer for
 real-time display. The context lines are the durable state -- save them for
 follow-ups.
+
+### A failed turn is a context line
+
+When the provider rejects the request, the turn still ends with an assistant
+line. It carries `"stopReason":"error"` and an `errorMessage`:
+
+```jsonl
+{"role":"assistant","content":[{"type":"text","text":""}],"stopReason":"error","model":"anthropic/claude-sonnet-5","errorMessage":"API error: HTTP 400 Bad Request: ..."}
+```
+
+The error also goes to stderr, but stdout is where a pipeline can see it. Check
+`stopReason` before you treat the last assistant line as a reply. Without that
+check, the last assistant line in the input echo reads as a fresh answer.
+
+### The context window is the stream
+
+Nothing is hidden. What the model receives is exactly the context lines you see:
+the system prompt, the tool definitions with their schemas, and the messages.
+There is no implicit system prompt, and with a prelude no injected tools -- what
+you can see, you can edit.
+
+Per-part size is derivable, so yoke does not emit it: each line's byte length is
+exact, its token cost is about `bytes / 4`, and the provider's real
+`prompt_tokens` (in the assistant `usage`) is the ground-truth total to
+reconcile against. The only thing genuinely off-stream is the provider-specific
+wire serialization (how these neutral lines become Anthropic/OpenAI/Gemini
+JSON).
 
 ## Round-tripping
 

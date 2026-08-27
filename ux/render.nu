@@ -80,21 +80,49 @@ export def render-user [text: string, --id: string = ""] {
   }
 }
 
-# Render a tool result card. `args` is a compact rendering of the call's arguments
-# (e.g. "path: README.md") so you can see what the tool was invoked with.
-export def render-tool-result [tool_name: string, content: string, --args: string = "", --is-error] {
-  let cls = if $is_error { "card tool error" } else { "card tool" }
-  DIV {class: $cls} [
-    (DIV {style: "font-weight: 600; font-size: 0.75rem; color: #555; margin-bottom: 0.25rem;"} [
-      (SPAN $tool_name)
-      ...(if ($args | is-not-empty) { [(SPAN {style: "font-weight: 400; color: #999; margin-left: 0.5rem; font-family: ui-monospace, monospace;"} $args)] } else { [] })
+# Render a tool result card. `args` is the call's arguments (e.g. the bash command) shown as a
+# readable block; the exit code, if the output carries one, is lifted into the status-bar header.
+# `id` anchors the card so the nav can jump straight to it.
+export def render-tool-result [tool_name: string, content: string, --args: string = "", --is-error, --id: string = ""] {
+  let exit = $content | parse -r 'Exit code: (?<code>-?[0-9]+)' | get -i 0.code
+  let body = if ($exit != null) {
+    $content | lines | where {|l| ($l | str trim | str starts-with "Exit code:") == false } | str join "\n" | str trim
+  } else { $content }
+  let bad = $is_error or (($exit != null) and ($exit != "0"))
+  let cls = if $bad { "card tool error" } else { "card tool" }
+  let attrs = if ($id | is-empty) { {class: $cls} } else { {class: $cls, id: $id} }
+  DIV $attrs [
+    (DIV {class: "tool-head"} [
+      (SPAN {class: "tool-name"} $tool_name)
+      ...(if ($exit != null) { [(SPAN {class: ("tool-exit " + (if $exit == "0" { "ok" } else { "bad" }))} $"exit ($exit)")] } else { [] })
     ])
-    (PRE {style: "margin: 0; white-space: pre-wrap; font-size: 0.75rem; max-height: 12rem; overflow-y: auto;"} $content)
+    ...(if ($args | is-not-empty) { [(PRE {class: "tool-args"} $args)] } else { [] })
+    ...(if ($body | is-not-empty) { [(PRE {class: "tool-out"} $body)] } else { [] })
   ]
 }
 
-# Render an assistant message card (without the outer #output div)
-export def render-assistant [msg: record] {
+# Render a tool *definition* as a card in the same family as a tool result: name + size + a
+# `schema` toggle in the status bar, then the description (what the user needs to know). The
+# verbose schema is revealed by the header toggle (a CSS checkbox, so it survives morphs).
+export def render-tool-def [name: string, bytes: int, description: string, schema: string] {
+  let cb = $"sc-($name)"
+  DIV {class: "card tool def"} [
+    (INPUT {type: "checkbox", id: $cb, class: "schema-cb", style: "display: none;"})
+    (DIV {class: "tool-head"} [
+      (SPAN {class: "tool-name"} $name)
+      (SPAN {class: "tool-meta"} [
+        (SPAN {class: "tool-size"} $"($bytes) B  ~(($bytes / 4) | math round) tok")
+        (LABEL {for: $cb, class: "schema-toggle"} "schema")
+      ])
+    ])
+    ...(if ($description | is-not-empty) { [(DIV {class: "tool-desc"} $description)] } else { [] })
+    (PRE {class: "tool-schema"} $schema)
+  ]
+}
+
+# Render an assistant message card (without the outer #output div). An id anchors the turn's
+# final response so a TOC can scroll to it.
+export def render-assistant [msg: record, --id: string = ""] {
   let text = $msg.content?
     | default []
     | where { $in.type? == "text" }
@@ -112,12 +140,13 @@ export def render-assistant [msg: record] {
     null
   }
 
-  DIV {class: "card"} [
+  let attrs = if ($id | is-empty) { {class: "card"} } else { {class: "card", id: $id} }
+  DIV $attrs [
     $rendered
     ...( if $sources != null { [$sources] } else { [] } )
     (DIV {style: "display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid #eee; font-size: 0.75rem; color: #888;"} [
       (SPAN $model)
-      (SPAN ...(render-usage $usage))
+      (SPAN {title: "in: full context sent this step (system prompt + tool schemas + conversation so far), not just your message. out: tokens generated. cached: input reused from cache. total: in + out. Each step is a fresh call, so in grows as history accumulates.", style: "cursor: help;"} ...(render-usage $usage))
     ])
   ]
 }
@@ -127,8 +156,23 @@ def fmt-args [args: any] {
   $args | default {} | items {|k v| $"($k): ($v)" } | str join ", "
 }
 
-# Render a complete run as a stack of cards from stored JSONL lines
-export def render-run [lines: list] {
+# The per-node action row under a card: fork (only on forkable turn nodes) and the raw JSONL
+# toggle. Fork points $head at this turn's frame, so the next send branches from here.
+def node-actions [msg: record, fork: any] {
+  DIV {class: "actions"} [
+    ...(if $fork != null {
+      [(BUTTON {class: "act-btn", title: "branch from here -- the next send continues this turn", "data-on:click": ("$head = '" + $fork + "'; @get('/load')")} "fork")]
+    } else { [] })
+    (DETAILS {class: "raw"} [
+      (SUMMARY {class: "raw-summary"} "raw")
+      (PRE ($msg | to json --indent 2))
+    ])
+  ]
+}
+
+# Render a complete run as a stack of cards from stored JSONL lines. `forks` is the turn frame
+# ids (by turn index); a user card gets a fork action pointing at its turn's frame.
+export def render-run [lines: list, --forks: list = []] {
   # Map each tool call id -> its compact args, sourced from the assistant messages.
   let call_args = $lines
     | where {|m| $m.role? == "assistant" }
@@ -139,9 +183,20 @@ export def render-run [lines: list] {
   # Turn number for each user message, so its card can be anchored as #turn-N.
   let user_positions = $lines | enumerate | where {|x| ($x.item.role?) == "user" } | get index
 
-  $lines | enumerate | each {|x|
+  # The last assistant text message of each turn, anchored #resp-N (line index -> turn number),
+  # so a TOC can jump to a turn's final response, not just its question.
+  let resp_by_idx = $lines | enumerate
+    | where {|x| $x.item.role? == "assistant" and (($x.item.content? | default [] | where {|c| $c.type? == "text" and (($c.text? | default "") | str length) > 0 } | length) > 0) }
+    | each {|x| {idx: $x.index, turn: (($user_positions | where {|u| $u <= $x.index } | length) - 1)} }
+    | group-by {|r| $r.turn | into string }
+    | values
+    | each {|grp| $grp | sort-by idx | last }
+    | reduce --fold {} {|it, acc| $acc | insert ($it.idx | into string) $it.turn }
+
+  let items = $lines | enumerate | each {|x|
     let msg = $x.item
-    match $msg.role? {
+    let turn = if ($msg.role? == "user") { $user_positions | enumerate | where {|u| $u.item == $x.index } | get -i 0.index | default 0 } else { null }
+    let card = match $msg.role? {
       "user" => {
         let text = $msg.content?
           | default []
@@ -149,7 +204,6 @@ export def render-run [lines: list] {
           | get text?
           | compact
           | str join ""
-        let turn = $user_positions | enumerate | where {|u| $u.item == $x.index } | get -i 0.index | default 0
         render-user $text --id $"turn-($turn)"
       }
       "assistant" => {
@@ -159,7 +213,8 @@ export def render-run [lines: list] {
           | where { $in.type? == "text" and ($in.text? | default "" | str length) > 0 }
           | length
         if $has_text > 0 {
-          render-assistant $msg
+          let rid = $resp_by_idx | get -o ($x.index | into string)
+          if $rid != null { render-assistant $msg --id $"resp-($rid)" } else { render-assistant $msg }
         } else {
           null
         }
@@ -174,91 +229,79 @@ export def render-run [lines: list] {
           | compact
           | str join "\n"
         let is_error = $msg.isError? | default false
+        let tc_id = $"tc-($msg.toolCallId? | default ($x.index | into string))"
         if $is_error {
-          render-tool-result $tool_name $content --args $args --is-error
+          render-tool-result $tool_name $content --args $args --is-error --id $tc_id
         } else {
-          render-tool-result $tool_name $content --args $args
+          render-tool-result $tool_name $content --args $args --id $tc_id
         }
       }
       _ => null
     }
+    if $card == null { null } else {
+      let fork = if ($turn != null) { $forks | get -i $turn } else { null }
+      {card: $card, msg: $msg, tool: ($msg.role? == "toolResult"), id: ($msg.toolCallId? | default ($x.index | into string)), fork: $fork}
+    }
   } | compact
+  # Newest first. The top item stays full; older tool cards collapse to a peek you can expand.
+  $items | reverse | enumerate | each {|y|
+    let it = $y.item
+    let body = if ($y.index != 0 and $it.tool) { collapsible-tool $it.card $it.id } else { $it.card }
+    DIV {class: "msg"} [$body (node-actions $it.msg $it.fork)]
+  }
 }
 
-# Render the full state: completed cards + streaming placeholder at bottom
-def render-frame [cards: list, streaming_text: string] {
-  let streaming = render-streaming-card $streaming_text
-  DIV {id: "output"} [...$cards $streaming]
+# Wrap a tool card so it collapses to a peek by default, with a [+]/[-] toggle to expand. Pure
+# CSS (a hidden checkbox + label), so expand state survives Datastar morphs on each stream tick.
+export def collapsible-tool [card: any, id: string] {
+  DIV {class: "collapsible"} [
+    (INPUT {type: "checkbox", id: $"exp-($id)", class: "exp-cb", style: "display: none;"})
+    $card
+    (LABEL {for: $"exp-($id)", class: "exp-toggle"} [
+      (SPAN {class: "i-plus"} "[+]")
+      (SPAN {class: "i-minus"} "[-]")
+    ])
+  ]
 }
 
-# Streaming card without the #output wrapper (for embedding in the stack)
+# The live card at the top of the stack: the model's in-progress text (or "thinking..."). Its
+# own #streaming id lets a text delta patch just this card, leaving the completed stack alone.
 def render-streaming-card [text: string] {
   let rendered = if ($text | is-empty) {
     SPAN {style: "color: #999;"} "thinking..."
   } else {
     $text | .md
   }
-  DIV {style: "padding: 1rem; background: #f5f5f5; border-radius: 0.5rem; min-height: 4rem; margin-bottom: 0.75rem;"} [
+  DIV {id: "streaming", style: "padding: 1rem; background: #f5f5f5; border-radius: 0.5rem; min-height: 4rem; margin-bottom: 0.75rem;"} [
     $rendered
     (SPAN {style: "display: inline-block; width: 0.5rem; height: 1rem; background: #333; animation: blink 1s step-end infinite;"} "")
   ]
 }
 
-# Process a stream of yoke JSONL lines into Datastar patch-elements records.
-# Renders completed cards immediately, with a streaming placeholder at the bottom.
+# The whole #output: the live streaming card on top (while a turn is active), then the completed
+# stack newest-first. One render path for streaming and rest -- render-run does the ordering.
+def stream-frame [messages: list, acc: string, active: bool] {
+  let top = if $active { [(render-streaming-card $acc)] } else { [] }
+  DIV {id: "output"} (DIV {class: "col"} [...$top ...(render-run $messages)])
+}
+
+# Process a stream of yoke JSONL lines into Datastar patch-elements records. Text deltas patch
+# only the streaming card; message/lifecycle events re-render the whole stack.
 export def "render yoke-stream" [--model (-m): string = ""] {
-  generate {|line, state = {acc: "", cards: [], messages: []}|
+  generate {|line, state = {acc: "", messages: []}|
     let event = try { $line | from json } catch { null }
     if $event == null {
       {next: $state}
     } else if ($event.type? == "delta" and $event.kind? == "text") {
       let acc = $state.acc + $event.delta
-      let frame = render-frame $state.cards $acc
-      {out: ($frame | to datastar-patch-elements), next: ($state | merge {acc: $acc})}
+      {out: (render-streaming-card $acc | to datastar-patch-elements), next: ($state | merge {acc: $acc})}
     } else if ($event.type? == "agent_start") {
-      let frame = render-frame [] ""
-      {out: ($frame | to datastar-patch-elements), next: {acc: "", cards: [], messages: []}}
-    } else if ($event.role? == "user") {
-      # User message: render card immediately
-      let text = $event.content?
-        | default []
-        | where { $in.type? == "text" }
-        | get text?
-        | compact
-        | str join ""
-      let cards = $state.cards | append (render-user $text)
+      {out: (stream-frame [] "" true | to datastar-patch-elements), next: {acc: "", messages: []}}
+    } else if ($event.role? in ["user" "toolResult" "assistant"]) {
       let messages = $state.messages | append $event
-      let frame = render-frame $cards ""
-      {out: ($frame | to datastar-patch-elements), next: ($state | merge {acc: "", cards: $cards, messages: $messages})}
-    } else if ($event.role? == "toolResult") {
-      # Tool result: render card immediately
-      let tool_name = $event.toolName? | default "tool"
-      let content = $event.content?
-        | default []
-        | where { $in.type? == "text" }
-        | get text?
-        | compact
-        | str join "\n"
-      let is_error = $event.isError? | default false
-      let card = if $is_error {
-        render-tool-result $tool_name $content --is-error
-      } else {
-        render-tool-result $tool_name $content
-      }
-      let cards = $state.cards | append $card
-      let messages = $state.messages | append $event
-      let frame = render-frame $cards ""
-      {out: ($frame | to datastar-patch-elements), next: ($state | merge {acc: "", cards: $cards, messages: $messages})}
-    } else if ($event.role? == "assistant") {
-      # Assistant message: render as completed card, reset streaming text
-      let messages = $state.messages | append $event
-      let cards = $state.cards | append (render-assistant $event)
-      {next: ($state | merge {acc: "", cards: $cards, messages: $messages})}
+      {out: (stream-frame $messages "" true | to datastar-patch-elements), next: ($state | merge {acc: "", messages: $messages})}
     } else if ($event.type? == "agent_end") {
-      # Final frame: just the completed cards, no streaming placeholder
-      let final_cards = render-run $state.messages
-      let frame = DIV {id: "output"} ...$final_cards
-      {out: ($frame | to datastar-patch-elements), next: $state}
+      {out: (stream-frame $state.messages "" false | to datastar-patch-elements), next: $state}
     } else {
       {next: $state}
     }
